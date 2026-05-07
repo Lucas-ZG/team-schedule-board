@@ -6,6 +6,8 @@ import type { CalendarStatus } from "@/types/database";
 type DayCellProps = {
   day: CalendarDay;
   statuses: CalendarStatus[];
+  isMultiSelectMode: boolean;
+  isSelected: boolean;
   onSelect: (day: CalendarDay, status?: CalendarStatus) => void;
 };
 
@@ -31,7 +33,22 @@ function getBadgeStyle(status: CalendarStatus) {
   };
 }
 
-export default function DayCell({ day, statuses, onSelect }: DayCellProps) {
+export default function DayCell({
+  day,
+  statuses,
+  isMultiSelectMode,
+  isSelected,
+  onSelect,
+}: DayCellProps) {
+  if (!day.isCurrentMonth) {
+    return (
+      <div
+        aria-hidden="true"
+        className="min-h-[132px] border border-slate-200 bg-slate-50 p-3 md:min-h-[150px]"
+      />
+    );
+  }
+
   const dateTextClass = day.isKoreanHoliday
     ? "text-red-600"
     : day.isSunday
@@ -53,9 +70,12 @@ export default function DayCell({ day, statuses, onSelect }: DayCellProps) {
       }}
       className={[
         "block w-full cursor-pointer",
-        "min-h-[132px] rounded-none border border-slate-200 bg-white p-3 text-left transition hover:border-blue-300 hover:bg-blue-50/40",
+        "min-h-[132px] rounded-none border bg-white p-3 text-left transition hover:border-blue-300 hover:bg-blue-50/40",
         "md:min-h-[150px]",
-        !day.isCurrentMonth ? "bg-slate-50 text-slate-400" : "",
+        isMultiSelectMode ? "hover:bg-blue-50" : "",
+        isSelected
+          ? "border-blue-500 bg-blue-50 ring-2 ring-inset ring-blue-400"
+          : "border-slate-200",
         day.isToday ? "ring-2 ring-inset ring-blue-500" : "",
       ].join(" ")}
     >
@@ -75,11 +95,6 @@ export default function DayCell({ day, statuses, onSelect }: DayCellProps) {
             </span>
           ) : null}
         </div>
-        {!day.isCurrentMonth ? (
-          <span className="shrink-0 text-xs font-medium text-slate-400">
-            Other
-          </span>
-        ) : null}
       </div>
 
       <div className="space-y-1.5">

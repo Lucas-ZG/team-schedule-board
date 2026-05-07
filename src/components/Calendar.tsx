@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
+import BatchStatusModal from "@/components/BatchStatusModal";
 import DayCell from "@/components/DayCell";
 import Header from "@/components/Header";
 import StatusModal from "@/components/StatusModal";
@@ -60,17 +61,31 @@ export default function Calendar() {
   const [selectedStatusUserId, setSelectedStatusUserId] = useState<string | null>(
     null,
   );
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+  const [selectedDates, setSelectedDates] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
+  const [batchError, setBatchError] = useState<string | null>(null);
 
   const monthDays = useMemo(
     () => buildMonthGrid(currentMonth),
     [currentMonth],
   );
-  const firstGridDate = monthDays[0]?.isoDate;
-  const lastGridDate = monthDays[monthDays.length - 1]?.isoDate;
+  const currentMonthDays = useMemo(
+    () => monthDays.filter((day) => day.isCurrentMonth),
+    [monthDays],
+  );
+  const firstMonthDate = currentMonthDays[0]?.isoDate;
+  const lastMonthDate = currentMonthDays[currentMonthDays.length - 1]?.isoDate;
+  const selectedDateList = useMemo(
+    () => Array.from(selectedDates).sort(),
+    [selectedDates],
+  );
 
   const statusesByDate = useMemo(() => {
     return statuses.reduce<Record<string, CalendarStatus[]>>((result, status) => {
@@ -91,13 +106,30 @@ export default function Calendar() {
     userProfile?.display_name || userProfile?.email || user?.email || "";
 
   function handleSelectDay(day: CalendarDay, status?: CalendarStatus) {
+    if (!day.isCurrentMonth) {
+      return;
+    }
+
+    if (isMultiSelectMode) {
+      setSelectedDates((current) => {
+        const next = new Set(current);
+        if (next.has(day.isoDate)) {
+          next.delete(day.isoDate);
+        } else {
+          next.add(day.isoDate);
+        }
+        return next;
+      });
+      return;
+    }
+
     setSelectedDay(day);
     setSelectedStatusUserId(status?.user_id || null);
     setModalError(null);
   }
 
   const loadMonthData = useCallback(async () => {
-    if (!user || !firstGridDate || !lastGridDate) {
+    if (!user || !firstMonthDate || !lastMonthDate) {
       return;
     }
 
@@ -122,8 +154,8 @@ export default function Calendar() {
       supabase
         .from("daily_status")
         .select("*")
-        .gte("work_date", firstGridDate)
-        .lte("work_date", lastGridDate)
+        .gte("work_date", firstMonthDate)
+        .lte("work_date", lastMonthDate)
         .order("work_date", { ascending: true })
         .order("created_at", { ascending: true }),
     ]);
@@ -166,7 +198,7 @@ export default function Calendar() {
           : null,
     );
     setLoading(false);
-  }, [firstGridDate, lastGridDate, user]);
+  }, [firstMonthDate, lastMonthDate, user]);
 
   useEffect(() => {
     const configError = getSupabaseConfigError();
@@ -203,6 +235,12 @@ export default function Calendar() {
   useEffect(() => {
     loadMonthData();
   }, [loadMonthData]);
+
+  useEffect(() => {
+    setSelectedDates(new Set());
+    setIsBatchModalOpen(false);
+    setBatchError(null);
+  }, [currentMonth]);
 
   async function handleLogout() {
     const supabase = getSupabaseClient();
@@ -295,6 +333,43 @@ export default function Calendar() {
     setSelectedStatusUserId(null);
   }
 
+  async function handleBatchApply(payload: {
+    userId: string;
+    workplaceId: string;
+    note: string;
+  }) {
+    if (!user || selectedDateList.length === 0) {
+      return;
+    }
+
+    setSaving(true);
+    setBatchError(null);
+
+    const supabase = getSupabaseClient();
+    const targetUserId = isAdmin ? payload.userId : user.id;
+    const { error: upsertError } = await supabase.from("daily_status").upsert(
+      selectedDateList.map((workDate) => ({
+        user_id: targetUserId,
+        work_date: workDate,
+        workplace_id: payload.workplaceId,
+        note: payload.note.trim() || null,
+      })),
+      { onConflict: "user_id,work_date" },
+    );
+
+    if (upsertError) {
+      setBatchError(upsertError.message);
+      setSaving(false);
+      return;
+    }
+
+    await loadMonthData();
+    setSaving(false);
+    setIsBatchModalOpen(false);
+    setSelectedDates(new Set());
+    setIsMultiSelectMode(false);
+  }
+
   if (loading && !user) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#f7f8fb] px-4">
@@ -330,7 +405,23 @@ export default function Calendar() {
             </p>
           </div>
 
-          <div className="grid grid-cols-3 gap-2 sm:flex">
+          <div className="grid grid-cols-2 gap-2 sm:flex">
+            <button
+              type="button"
+              onClick={() => {
+                setIsMultiSelectMode((value) => !value);
+                setSelectedDates(new Set());
+                setBatchError(null);
+              }}
+              className={[
+                "rounded-md border px-3 py-2 text-sm font-semibold transition",
+                isMultiSelectMode
+                  ? "border-blue-600 bg-blue-600 text-white hover:bg-blue-700"
+                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
+              ].join(" ")}
+            >
+              {isMultiSelectMode ? "Exit multi-select" : "Multi-select"}
+            </button>
             <button
               type="button"
               onClick={() => setCurrentMonth((value) => addMonths(value, -1))}
@@ -354,6 +445,25 @@ export default function Calendar() {
             </button>
           </div>
         </section>
+
+        {isMultiSelectMode ? (
+          <section className="mb-4 flex flex-col gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-semibold text-blue-900">
+              Selected: {selectedDateList.length} days
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setBatchError(null);
+                setIsBatchModalOpen(true);
+              }}
+              disabled={selectedDateList.length === 0}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+            >
+              Apply to selected dates
+            </button>
+          </section>
+        ) : null}
 
         {error ? (
           <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -385,7 +495,11 @@ export default function Calendar() {
               <DayCell
                 key={day.isoDate}
                 day={day}
-                statuses={statusesByDate[day.isoDate] || []}
+                statuses={
+                  day.isCurrentMonth ? statusesByDate[day.isoDate] || [] : []
+                }
+                isMultiSelectMode={isMultiSelectMode}
+                isSelected={selectedDates.has(day.isoDate)}
                 onSelect={handleSelectDay}
               />
             ))}
@@ -411,6 +525,23 @@ export default function Calendar() {
           }}
           onSave={handleSave}
           onDelete={handleDelete}
+        />
+      ) : null}
+
+      {isBatchModalOpen && user ? (
+        <BatchStatusModal
+          selectedDateCount={selectedDateList.length}
+          currentUserId={user.id}
+          isAdmin={isAdmin}
+          profiles={profiles}
+          workplaces={workplaces}
+          saving={saving}
+          error={batchError}
+          onClose={() => {
+            setIsBatchModalOpen(false);
+            setBatchError(null);
+          }}
+          onApply={handleBatchApply}
         />
       ) : null}
     </div>
