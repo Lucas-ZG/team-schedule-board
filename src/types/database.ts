@@ -13,16 +13,22 @@ export type Database = {
         Row: {
           id: string;
           display_name: string | null;
+          email: string | null;
+          role: "admin" | "user";
           created_at: string;
         };
         Insert: {
           id: string;
           display_name?: string | null;
+          email?: string | null;
+          role?: "admin" | "user";
           created_at?: string;
         };
         Update: {
           id?: string;
           display_name?: string | null;
+          email?: string | null;
+          role?: "admin" | "user";
           created_at?: string;
         };
         Relationships: [];

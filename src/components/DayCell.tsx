@@ -6,7 +6,7 @@ import type { CalendarStatus } from "@/types/database";
 type DayCellProps = {
   day: CalendarDay;
   statuses: CalendarStatus[];
-  onSelect: (day: CalendarDay) => void;
+  onSelect: (day: CalendarDay, status?: CalendarStatus) => void;
 };
 
 function getDisplayName(status: CalendarStatus) {
@@ -41,10 +41,18 @@ export default function DayCell({ day, statuses, onSelect }: DayCellProps) {
         : "text-slate-700";
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => onSelect(day)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect(day);
+        }
+      }}
       className={[
+        "block w-full cursor-pointer",
         "min-h-[132px] rounded-none border border-slate-200 bg-white p-3 text-left transition hover:border-blue-300 hover:bg-blue-50/40",
         "md:min-h-[150px]",
         !day.isCurrentMonth ? "bg-slate-50 text-slate-400" : "",
@@ -79,9 +87,14 @@ export default function DayCell({ day, statuses, onSelect }: DayCellProps) {
           <p className="text-xs text-slate-400">No status</p>
         ) : (
           statuses.map((status) => (
-            <div
+            <button
+              type="button"
               key={status.id}
-              className="flex items-center gap-1.5 text-xs leading-5"
+              onClick={(event) => {
+                event.stopPropagation();
+                onSelect(day, status);
+              }}
+              className="flex w-full items-center gap-1.5 text-left text-xs leading-5"
             >
               <span className="min-w-0 flex-1 truncate font-medium text-slate-700">
                 {getDisplayName(status)}
@@ -92,10 +105,10 @@ export default function DayCell({ day, statuses, onSelect }: DayCellProps) {
               >
                 {status.workplace?.name || "Unknown"}
               </span>
-            </div>
+            </button>
           ))
         )}
       </div>
-    </button>
+    </div>
   );
 }

@@ -1,22 +1,33 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { CalendarStatus, Workplace } from "@/types/database";
+import type { CalendarStatus, Profile, Workplace } from "@/types/database";
 
 type StatusModalProps = {
   selectedDate: string;
   currentUserId: string;
+  isAdmin: boolean;
+  selectedStatusUserId: string | null;
+  profiles: Profile[];
   statuses: CalendarStatus[];
   workplaces: Workplace[];
   saving: boolean;
   error: string | null;
   onClose: () => void;
-  onSave: (payload: { workplaceId: string; note: string }) => Promise<void>;
-  onDelete: () => Promise<void>;
+  onSave: (payload: {
+    userId: string;
+    workplaceId: string;
+    note: string;
+  }) => Promise<void>;
+  onDelete: (userId: string) => Promise<void>;
 };
 
-function displayName(status: CalendarStatus) {
-  return status.profile?.display_name || "Unknown";
+function memberLabel(profile?: Profile) {
+  return profile?.display_name || profile?.email || "Unknown member";
+}
+
+function statusMemberLabel(status: CalendarStatus) {
+  return memberLabel(status.profile);
 }
 
 function workplaceLabel(status: CalendarStatus) {
@@ -26,6 +37,9 @@ function workplaceLabel(status: CalendarStatus) {
 export default function StatusModal({
   selectedDate,
   currentUserId,
+  isAdmin,
+  selectedStatusUserId,
+  profiles,
   statuses,
   workplaces,
   saving,
@@ -34,31 +48,68 @@ export default function StatusModal({
   onSave,
   onDelete,
 }: StatusModalProps) {
-  const ownStatus = useMemo(
-    () => statuses.find((status) => status.user_id === currentUserId) || null,
-    [currentUserId, statuses],
+  const sortedProfiles = useMemo(
+    () =>
+      [...profiles].sort((left, right) =>
+        memberLabel(left).localeCompare(memberLabel(right)),
+      ),
+    [profiles],
   );
+
+  const [selectedUserId, setSelectedUserId] = useState(currentUserId);
+  const isViewingOtherUser =
+    !isAdmin &&
+    selectedStatusUserId !== null &&
+    selectedStatusUserId !== currentUserId;
+  const targetUserId = isAdmin
+    ? selectedUserId
+    : isViewingOtherUser
+      ? selectedStatusUserId
+      : currentUserId;
+  const targetStatus = useMemo(
+    () => statuses.find((status) => status.user_id === targetUserId) || null,
+    [statuses, targetUserId],
+  );
+  const canEdit = isAdmin || targetUserId === currentUserId;
   const [workplaceId, setWorkplaceId] = useState("");
   const [note, setNote] = useState("");
 
   useEffect(() => {
-    const ownWorkplaceIsAvailable = workplaces.some(
-      (workplace) => workplace.id === ownStatus?.workplace_id,
-    );
-
-    setWorkplaceId(
-      ownWorkplaceIsAvailable ? ownStatus!.workplace_id : workplaces[0]?.id || "",
-    );
-    setNote(ownStatus?.note || "");
-  }, [ownStatus, workplaces]);
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!workplaceId) {
+    if (!isAdmin) {
+      setSelectedUserId(currentUserId);
       return;
     }
 
-    await onSave({ workplaceId, note });
+    const requestedUserId = selectedStatusUserId || currentUserId;
+    const requestedUserExists = profiles.some(
+      (profile) => profile.id === requestedUserId,
+    );
+
+    setSelectedUserId(
+      requestedUserExists ? requestedUserId : profiles[0]?.id || currentUserId,
+    );
+  }, [currentUserId, isAdmin, profiles, selectedStatusUserId]);
+
+  useEffect(() => {
+    const statusWorkplaceIsAvailable = workplaces.some(
+      (workplace) => workplace.id === targetStatus?.workplace_id,
+    );
+
+    setWorkplaceId(
+      statusWorkplaceIsAvailable
+        ? targetStatus!.workplace_id
+        : workplaces[0]?.id || "",
+    );
+    setNote(targetStatus?.note || "");
+  }, [targetStatus, workplaces]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canEdit || !targetUserId || !workplaceId) {
+      return;
+    }
+
+    await onSave({ userId: targetUserId, workplaceId, note });
   }
 
   return (
@@ -94,13 +145,25 @@ export default function StatusModal({
                 </p>
               ) : (
                 statuses.map((status) => (
-                  <div
+                  <button
+                    type="button"
                     key={status.id}
-                    className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+                    onClick={() => {
+                      if (isAdmin) {
+                        setSelectedUserId(status.user_id);
+                      }
+                    }}
+                    className={[
+                      "w-full rounded-md border px-3 py-2 text-left",
+                      status.user_id === targetUserId
+                        ? "border-blue-300 bg-blue-50"
+                        : "border-slate-200 bg-slate-50",
+                      isAdmin ? "hover:border-blue-300" : "",
+                    ].join(" ")}
                   >
                     <div className="flex items-center justify-between gap-3">
                       <span className="truncate text-sm font-semibold text-slate-800">
-                        {displayName(status)}
+                        {statusMemberLabel(status)}
                       </span>
                       <span
                         className={[
@@ -118,7 +181,7 @@ export default function StatusModal({
                         {status.note}
                       </p>
                     ) : null}
-                  </div>
+                  </button>
                 ))
               )}
             </div>
@@ -126,18 +189,44 @@ export default function StatusModal({
 
           <form onSubmit={handleSubmit}>
             <h3 className="text-sm font-semibold text-slate-900">
-              Your status
+              {isAdmin ? "Edit member status" : "Your status"}
             </h3>
+
+            {isAdmin ? (
+              <label className="mt-3 block">
+                <span className="text-sm font-medium text-slate-700">
+                  Member
+                </span>
+                <select
+                  className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-slate-950 shadow-sm"
+                  value={selectedUserId}
+                  onChange={(event) => setSelectedUserId(event.target.value)}
+                  required
+                >
+                  {sortedProfiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {memberLabel(profile)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+
+            {!canEdit ? (
+              <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                View only. You can edit only your own status.
+              </p>
+            ) : null}
 
             <label className="mt-3 block">
               <span className="text-sm font-medium text-slate-700">
                 Workplace
               </span>
               <select
-                className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-slate-950 shadow-sm"
+                className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-slate-950 shadow-sm disabled:bg-slate-100 disabled:text-slate-500"
                 value={workplaceId}
                 onChange={(event) => setWorkplaceId(event.target.value)}
-                disabled={workplaces.length === 0}
+                disabled={!canEdit || workplaces.length === 0}
                 required
               >
                 {workplaces.length === 0 ? (
@@ -154,17 +243,18 @@ export default function StatusModal({
             {workplaces.length === 0 ? (
               <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
                 No active workplaces found. Run supabase/schema.sql or
-                supabase/fix_rls.sql, then refresh this page.
+                supabase/add_admin_role.sql, then refresh this page.
               </p>
             ) : null}
 
             <label className="mt-4 block">
               <span className="text-sm font-medium text-slate-700">Note</span>
               <textarea
-                className="mt-2 min-h-28 w-full resize-y rounded-md border border-slate-300 bg-white px-3 py-2.5 text-slate-950 shadow-sm"
+                className="mt-2 min-h-28 w-full resize-y rounded-md border border-slate-300 bg-white px-3 py-2.5 text-slate-950 shadow-sm disabled:bg-slate-100 disabled:text-slate-500"
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
                 placeholder="Optional"
+                disabled={!canEdit}
               />
             </label>
 
@@ -177,15 +267,15 @@ export default function StatusModal({
             <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <button
                 type="button"
-                onClick={onDelete}
-                disabled={!ownStatus || saving}
+                onClick={() => onDelete(targetUserId)}
+                disabled={!canEdit || !targetStatus || saving}
                 className="rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
               >
                 Delete
               </button>
               <button
                 type="submit"
-                disabled={saving || !workplaceId || workplaces.length === 0}
+                disabled={!canEdit || saving || !workplaceId || workplaces.length === 0}
                 className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
               >
                 {saving ? "Saving..." : "Save"}

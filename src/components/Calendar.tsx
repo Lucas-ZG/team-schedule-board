@@ -24,7 +24,14 @@ import type {
   Workplace,
 } from "@/types/database";
 
-const WORKPLACE_ORDER = ["K3", "K5", "Office", "ITEK", "Customer Site", "Dayoff"];
+const WORKPLACE_ORDER = [
+  "K3",
+  "K5",
+  "Office",
+  "Home",
+  "Customer Site",
+  "dayoff",
+];
 
 function sortWorkplaces(workplaces: Workplace[]) {
   return [...workplaces].sort((left, right) => {
@@ -50,6 +57,9 @@ export default function Calendar() {
   const [statuses, setStatuses] = useState<CalendarStatus[]>([]);
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [selectedDay, setSelectedDay] = useState<CalendarDay | null>(null);
+  const [selectedStatusUserId, setSelectedStatusUserId] = useState<string | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,7 +86,15 @@ export default function Calendar() {
     () => profiles.find((profile) => profile.id === user?.id) || null,
     [profiles, user?.id],
   );
-  const userLabel = userProfile?.display_name || user?.email || "";
+  const isAdmin = userProfile?.role === "admin";
+  const userLabel =
+    userProfile?.display_name || userProfile?.email || user?.email || "";
+
+  function handleSelectDay(day: CalendarDay, status?: CalendarStatus) {
+    setSelectedDay(day);
+    setSelectedStatusUserId(status?.user_id || null);
+    setModalError(null);
+  }
 
   const loadMonthData = useCallback(async () => {
     if (!user || !firstGridDate || !lastGridDate) {
@@ -112,7 +130,7 @@ export default function Calendar() {
 
     const errorMessages = [
       profilesResult.error
-        ? `profiles: ${profilesResult.error.message}. Run supabase/fix_rls.sql in Supabase SQL Editor.`
+        ? `profiles: ${profilesResult.error.message}. Run supabase/add_admin_role.sql in Supabase SQL Editor.`
         : null,
       workplacesResult.error
         ? `workplaces: ${workplacesResult.error.message}. Confirm RLS allows authenticated select on active workplaces.`
@@ -144,7 +162,7 @@ export default function Calendar() {
       errorMessages.length > 0
         ? errorMessages.join("\n")
         : nextWorkplaces.length === 0
-          ? "No active workplaces found. Run supabase/schema.sql or supabase/fix_rls.sql in Supabase SQL Editor."
+          ? "No active workplaces found. Run supabase/schema.sql or supabase/add_admin_role.sql in Supabase SQL Editor."
           : null,
     );
     setLoading(false);
@@ -192,7 +210,11 @@ export default function Calendar() {
     router.replace("/login");
   }
 
-  async function handleSave(payload: { workplaceId: string; note: string }) {
+  async function handleSave(payload: {
+    userId: string;
+    workplaceId: string;
+    note: string;
+  }) {
     if (!user || !selectedDay) {
       return;
     }
@@ -201,9 +223,11 @@ export default function Calendar() {
     setModalError(null);
 
     const supabase = getSupabaseClient();
-    const ownStatus = statuses.find(
+    const targetUserId = isAdmin ? payload.userId : user.id;
+    const targetStatus = statuses.find(
       (status) =>
-        status.user_id === user.id && status.work_date === selectedDay.isoDate,
+        status.user_id === targetUserId &&
+        status.work_date === selectedDay.isoDate,
     );
 
     const savePayload = {
@@ -211,13 +235,13 @@ export default function Calendar() {
       note: payload.note.trim() || null,
     };
 
-    const result = ownStatus
+    const result = targetStatus
       ? await supabase
           .from("daily_status")
           .update(savePayload)
-          .eq("id", ownStatus.id)
+          .eq("id", targetStatus.id)
       : await supabase.from("daily_status").insert({
-          user_id: user.id,
+          user_id: targetUserId,
           work_date: selectedDay.isoDate,
           ...savePayload,
         });
@@ -231,19 +255,22 @@ export default function Calendar() {
     await loadMonthData();
     setSaving(false);
     setSelectedDay(null);
+    setSelectedStatusUserId(null);
   }
 
-  async function handleDelete() {
+  async function handleDelete(targetUserId: string) {
     if (!user || !selectedDay) {
       return;
     }
 
-    const ownStatus = statuses.find(
+    const effectiveUserId = isAdmin ? targetUserId : user.id;
+    const targetStatus = statuses.find(
       (status) =>
-        status.user_id === user.id && status.work_date === selectedDay.isoDate,
+        status.user_id === effectiveUserId &&
+        status.work_date === selectedDay.isoDate,
     );
 
-    if (!ownStatus) {
+    if (!targetStatus) {
       return;
     }
 
@@ -254,7 +281,7 @@ export default function Calendar() {
     const { error: deleteError } = await supabase
       .from("daily_status")
       .delete()
-      .eq("id", ownStatus.id);
+      .eq("id", targetStatus.id);
 
     if (deleteError) {
       setModalError(deleteError.message);
@@ -265,6 +292,7 @@ export default function Calendar() {
     await loadMonthData();
     setSaving(false);
     setSelectedDay(null);
+    setSelectedStatusUserId(null);
   }
 
   if (loading && !user) {
@@ -358,7 +386,7 @@ export default function Calendar() {
                 key={day.isoDate}
                 day={day}
                 statuses={statusesByDate[day.isoDate] || []}
-                onSelect={setSelectedDay}
+                onSelect={handleSelectDay}
               />
             ))}
           </div>
@@ -369,12 +397,16 @@ export default function Calendar() {
         <StatusModal
           selectedDate={selectedDay.isoDate}
           currentUserId={user.id}
+          isAdmin={isAdmin}
+          selectedStatusUserId={selectedStatusUserId}
+          profiles={profiles}
           statuses={statusesByDate[selectedDay.isoDate] || []}
           workplaces={workplaces}
           saving={saving}
           error={modalError}
           onClose={() => {
             setSelectedDay(null);
+            setSelectedStatusUserId(null);
             setModalError(null);
           }}
           onSave={handleSave}

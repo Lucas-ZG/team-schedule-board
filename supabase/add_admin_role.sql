@@ -1,51 +1,22 @@
-create extension if not exists pgcrypto;
+alter table public.profiles
+add column if not exists email text;
 
-create table if not exists public.profiles (
-  id uuid primary key references auth.users(id) on delete cascade,
-  display_name text,
-  email text,
-  role text not null default 'user' check (role in ('admin', 'user')),
-  created_at timestamptz not null default now()
-);
+alter table public.profiles
+add column if not exists role text not null default 'user';
 
-create table if not exists public.workplaces (
-  id uuid primary key default gen_random_uuid(),
-  name text not null unique,
-  color text,
-  is_dayoff boolean not null default false,
-  is_active boolean not null default true,
-  created_at timestamptz not null default now()
-);
-
-create table if not exists public.daily_status (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.profiles(id) on delete cascade,
-  work_date date not null,
-  workplace_id uuid not null references public.workplaces(id),
-  note text,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  constraint daily_status_user_date_unique unique (user_id, work_date)
-);
-
-create index if not exists daily_status_work_date_idx
-  on public.daily_status (work_date);
-
-create or replace function public.set_updated_at()
-returns trigger
-language plpgsql
-as $$
+do $$
 begin
-  new.updated_at = now();
-  return new;
-end;
-$$;
-
-drop trigger if exists set_daily_status_updated_at on public.daily_status;
-create trigger set_daily_status_updated_at
-before update on public.daily_status
-for each row
-execute function public.set_updated_at();
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'profiles_role_check'
+      and conrelid = 'public.profiles'::regclass
+  ) then
+    alter table public.profiles
+    add constraint profiles_role_check
+    check (role in ('admin', 'user'));
+  end if;
+end $$;
 
 create or replace function public.handle_new_user()
 returns trigger
@@ -62,22 +33,20 @@ begin
       split_part(new.email, '@', 1)
     ),
     new.email,
-    'user'
+    case when lower(new.email) = 'lucas@test.com' then 'admin' else 'user' end
   )
   on conflict (id) do update
   set
     email = excluded.email,
-    display_name = coalesce(public.profiles.display_name, excluded.display_name);
+    display_name = coalesce(public.profiles.display_name, excluded.display_name),
+    role = case
+      when lower(excluded.email) = 'lucas@test.com' then 'admin'
+      else coalesce(public.profiles.role, 'user')
+    end;
 
   return new;
 end;
 $$;
-
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-after insert on auth.users
-for each row
-execute function public.handle_new_user();
 
 insert into public.profiles (id, display_name, email, role)
 select
@@ -97,6 +66,14 @@ set
     when lower(excluded.email) = 'lucas@test.com' then 'admin'
     else coalesce(public.profiles.role, 'user')
   end;
+
+update public.profiles
+set role = 'admin'
+where lower(email) = 'lucas@test.com';
+
+update public.profiles
+set role = 'user'
+where role is null;
 
 alter table public.profiles enable row level security;
 alter table public.workplaces enable row level security;
@@ -200,6 +177,15 @@ using (
   )
 );
 
+update public.workplaces
+set name = 'dayoff', color = '#dc2626', is_dayoff = true, is_active = true
+where name = 'Dayoff'
+  and not exists (
+    select 1
+    from public.workplaces existing
+    where existing.name = 'dayoff'
+  );
+
 insert into public.workplaces (name, color, is_dayoff, is_active)
 values
   ('K3', '#2563eb', false, true),
@@ -213,6 +199,26 @@ set
   color = excluded.color,
   is_dayoff = excluded.is_dayoff,
   is_active = excluded.is_active;
+
+with target as (
+  select id
+  from public.workplaces
+  where name = 'dayoff'
+  limit 1
+),
+sources as (
+  select id
+  from public.workplaces
+  where name = 'Dayoff'
+)
+update public.daily_status
+set workplace_id = (select id from target)
+where workplace_id in (select id from sources)
+  and exists (select 1 from target);
+
+update public.workplaces
+set is_active = false
+where name in ('Dayoff', 'ITEK');
 
 grant usage on schema public to authenticated;
 revoke all on public.profiles from authenticated;

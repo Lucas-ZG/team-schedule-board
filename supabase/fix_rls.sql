@@ -71,13 +71,12 @@ to authenticated
 using (auth.uid() = user_id);
 
 update public.workplaces
-set name = 'Dayoff', color = '#dc2626', is_dayoff = true, is_active = true
-where lower(name) = 'dayoff'
-  and name <> 'Dayoff'
+set name = 'dayoff', color = '#dc2626', is_dayoff = true, is_active = true
+where name = 'Dayoff'
   and not exists (
     select 1
     from public.workplaces existing
-    where existing.name = 'Dayoff'
+    where existing.name = 'dayoff'
   );
 
 insert into public.workplaces (name, color, is_dayoff, is_active)
@@ -85,9 +84,9 @@ values
   ('K3', '#2563eb', false, true),
   ('K5', '#0891b2', false, true),
   ('Office', '#475569', false, true),
-  ('ITEK', '#7c3aed', false, true),
+  ('Home', '#16a34a', false, true),
   ('Customer Site', '#9333ea', false, true),
-  ('Dayoff', '#dc2626', true, true)
+  ('dayoff', '#dc2626', true, true)
 on conflict (name) do update
 set
   color = excluded.color,
@@ -96,19 +95,18 @@ set
 
 update public.workplaces
 set is_active = false
-where name = 'Home';
+where name = 'ITEK';
 
 with target as (
   select id
   from public.workplaces
-  where name = 'Dayoff'
+  where name = 'dayoff'
   limit 1
 ),
 sources as (
   select id
   from public.workplaces
-  where lower(name) = 'dayoff'
-    and name <> 'Dayoff'
+  where name = 'Dayoff'
 )
 update public.daily_status
 set workplace_id = (select id from target)
@@ -117,5 +115,12 @@ where workplace_id in (select id from sources)
 
 update public.workplaces
 set is_active = false
-where lower(name) = 'dayoff'
-  and name <> 'Dayoff';
+where name = 'Dayoff';
+
+grant usage on schema public to authenticated;
+revoke all on public.profiles from authenticated;
+grant select on public.profiles to authenticated;
+grant insert (id, display_name) on public.profiles to authenticated;
+grant update (display_name) on public.profiles to authenticated;
+grant select on public.workplaces to authenticated;
+grant select, insert, update, delete on public.daily_status to authenticated;

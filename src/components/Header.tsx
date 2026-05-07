@@ -14,7 +14,7 @@ export default function Header({ userLabel, onLogout }: HeaderProps) {
             Team Schedule
           </p>
           <h1 className="text-xl font-semibold text-slate-950">
-            工作地點與休假月曆
+            Workplace & Day Off Calendar
           </h1>
         </div>
 

@@ -30,11 +30,8 @@ export function addMonths(date: Date, amount: number) {
 }
 
 export function getMonthTitle(date: Date) {
-  return new Intl.DateTimeFormat("zh-TW", {
-    year: "numeric",
-    month: "long",
-    timeZone: "Asia/Seoul",
-  }).format(date);
+  const { year, month } = getKoreanDateParts(date);
+  return `${year}/${month}`;
 }
 
 function getWeekdayInKorea(year: number, monthIndex: number, day: number) {
