@@ -18,9 +18,14 @@ type StatusModalProps = {
     userId: string;
     workplaceId: string;
     note: string;
+    overtimeEnabled: boolean;
+    overtimeHours: number;
   }) => Promise<void>;
   onDelete: (userId: string) => Promise<void>;
 };
+
+const OVERTIME_HOUR_OPTIONS = Array.from({ length: 48 }, (_, index) => (index + 1) * 0.5);
+const DEFAULT_OVERTIME_HOURS = 1;
 
 function memberLabel(profile?: Profile) {
   return profile?.display_name || profile?.email || "Unknown member";
@@ -73,6 +78,8 @@ export default function StatusModal({
   const canEdit = isAdmin || targetUserId === currentUserId;
   const [workplaceId, setWorkplaceId] = useState("");
   const [note, setNote] = useState("");
+  const [overtimeEnabled, setOvertimeEnabled] = useState(false);
+  const [overtimeHours, setOvertimeHours] = useState<number>(DEFAULT_OVERTIME_HOURS);
 
   useEffect(() => {
     if (!isAdmin) {
@@ -101,6 +108,12 @@ export default function StatusModal({
         : workplaces[0]?.id || "",
     );
     setNote(targetStatus?.note || "");
+    setOvertimeEnabled(Boolean(targetStatus?.overtime_enabled));
+    setOvertimeHours(
+      targetStatus?.overtime_enabled && Number(targetStatus?.overtime_hours) > 0
+        ? Number(targetStatus.overtime_hours)
+        : DEFAULT_OVERTIME_HOURS,
+    );
   }, [targetStatus, workplaces]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -109,7 +122,13 @@ export default function StatusModal({
       return;
     }
 
-    await onSave({ userId: targetUserId, workplaceId, note });
+    await onSave({
+      userId: targetUserId,
+      workplaceId,
+      note,
+      overtimeEnabled,
+      overtimeHours: overtimeEnabled ? overtimeHours : 0,
+    });
   }
 
   return (
@@ -257,6 +276,41 @@ export default function StatusModal({
                 disabled={!canEdit}
               />
             </label>
+
+            <div className="mt-4 rounded-md border border-slate-200 bg-slate-50/60 px-3 py-3">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
+                  checked={overtimeEnabled}
+                  onChange={(event) => setOvertimeEnabled(event.target.checked)}
+                  disabled={!canEdit}
+                />
+                <span className="text-sm font-medium text-slate-700">Overtime</span>
+              </label>
+
+              {overtimeEnabled ? (
+                <label className="mt-3 block">
+                  <span className="text-xs font-medium text-slate-600">
+                    Overtime Hours
+                  </span>
+                  <select
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-950 shadow-sm disabled:bg-slate-100 disabled:text-slate-500"
+                    value={overtimeHours}
+                    onChange={(event) =>
+                      setOvertimeHours(Number(event.target.value))
+                    }
+                    disabled={!canEdit}
+                  >
+                    {OVERTIME_HOUR_OPTIONS.map((hours) => (
+                      <option key={hours} value={hours}>
+                        {hours.toFixed(1)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+            </div>
 
             {error ? (
               <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">

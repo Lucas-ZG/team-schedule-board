@@ -97,6 +97,41 @@ export default function Calendar() {
     }, {});
   }, [statuses]);
 
+  const monthlyOvertimeSummary = useMemo(() => {
+    if (!firstMonthDate || !lastMonthDate) {
+      return [] as { userId: string; label: string; hours: number }[];
+    }
+
+    const totals = new Map<string, number>();
+    statuses.forEach((status) => {
+      if (!status.overtime_enabled) {
+        return;
+      }
+      const hours = Number(status.overtime_hours) || 0;
+      if (hours <= 0) {
+        return;
+      }
+      if (status.work_date < firstMonthDate || status.work_date > lastMonthDate) {
+        return;
+      }
+      totals.set(status.user_id, (totals.get(status.user_id) || 0) + hours);
+    });
+
+    return Array.from(totals.entries())
+      .map(([userId, hours]) => {
+        const profile = profiles.find((entry) => entry.id === userId);
+        const label =
+          profile?.display_name || profile?.email || "Unknown member";
+        return { userId, label, hours };
+      })
+      .sort((left, right) => {
+        if (right.hours !== left.hours) {
+          return right.hours - left.hours;
+        }
+        return left.label.localeCompare(right.label);
+      });
+  }, [statuses, profiles, firstMonthDate, lastMonthDate]);
+
   const userProfile = useMemo(
     () => profiles.find((profile) => profile.id === user?.id) || null,
     [profiles, user?.id],
@@ -252,6 +287,8 @@ export default function Calendar() {
     userId: string;
     workplaceId: string;
     note: string;
+    overtimeEnabled: boolean;
+    overtimeHours: number;
   }) {
     if (!user || !selectedDay) {
       return;
@@ -271,6 +308,8 @@ export default function Calendar() {
     const savePayload = {
       workplace_id: payload.workplaceId,
       note: payload.note.trim() || null,
+      overtime_enabled: payload.overtimeEnabled,
+      overtime_hours: payload.overtimeEnabled ? payload.overtimeHours : 0,
     };
 
     const result = targetStatus
@@ -337,6 +376,8 @@ export default function Calendar() {
     userId: string;
     workplaceId: string;
     note: string;
+    overtimeEnabled: boolean;
+    overtimeHours: number;
   }) {
     if (!user || selectedDateList.length === 0) {
       return;
@@ -353,6 +394,8 @@ export default function Calendar() {
         work_date: workDate,
         workplace_id: payload.workplaceId,
         note: payload.note.trim() || null,
+        overtime_enabled: payload.overtimeEnabled,
+        overtime_hours: payload.overtimeEnabled ? payload.overtimeHours : 0,
       })),
       { onConflict: "user_id,work_date" },
     );
@@ -470,6 +513,31 @@ export default function Calendar() {
             {error}
           </div>
         ) : null}
+
+        <section className="mb-4 rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-3 shadow-soft">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-amber-900">
+              Monthly OT Summary
+            </h3>
+            <span className="text-xs font-medium text-amber-700">
+              {getMonthTitle(currentMonth)}
+            </span>
+          </div>
+          {monthlyOvertimeSummary.length === 0 ? (
+            <p className="mt-2 text-xs text-amber-800/80">
+              No overtime recorded this month.
+            </p>
+          ) : (
+            <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-amber-900">
+              {monthlyOvertimeSummary.map((entry) => (
+                <li key={entry.userId} className="font-medium">
+                  <span>{entry.label}</span>
+                  <span className="text-amber-700"> : {entry.hours.toFixed(1)}h</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
         <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-soft">
           <div className="hidden grid-cols-7 border-b border-slate-200 bg-slate-50 md:grid">

@@ -16,8 +16,13 @@ type BatchStatusModalProps = {
     userId: string;
     workplaceId: string;
     note: string;
+    overtimeEnabled: boolean;
+    overtimeHours: number;
   }) => Promise<void>;
 };
+
+const OVERTIME_HOUR_OPTIONS = Array.from({ length: 48 }, (_, index) => (index + 1) * 0.5);
+const DEFAULT_OVERTIME_HOURS = 1;
 
 function memberLabel(profile?: Profile) {
   return profile?.display_name || profile?.email || "Unknown member";
@@ -44,6 +49,8 @@ export default function BatchStatusModal({
   const [selectedUserId, setSelectedUserId] = useState(currentUserId);
   const [workplaceId, setWorkplaceId] = useState("");
   const [note, setNote] = useState("");
+  const [overtimeEnabled, setOvertimeEnabled] = useState(false);
+  const [overtimeHours, setOvertimeHours] = useState<number>(DEFAULT_OVERTIME_HOURS);
 
   useEffect(() => {
     if (!isAdmin) {
@@ -67,7 +74,13 @@ export default function BatchStatusModal({
       return;
     }
 
-    await onApply({ userId: selectedUserId, workplaceId, note });
+    await onApply({
+      userId: selectedUserId,
+      workplaceId,
+      note,
+      overtimeEnabled,
+      overtimeHours: overtimeEnabled ? overtimeHours : 0,
+    });
   }
 
   return (
@@ -146,6 +159,39 @@ export default function BatchStatusModal({
               placeholder="Optional"
             />
           </label>
+
+          <div className="mt-4 rounded-md border border-slate-200 bg-slate-50/60 px-3 py-3">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                checked={overtimeEnabled}
+                onChange={(event) => setOvertimeEnabled(event.target.checked)}
+              />
+              <span className="text-sm font-medium text-slate-700">Overtime</span>
+            </label>
+
+            {overtimeEnabled ? (
+              <label className="mt-3 block">
+                <span className="text-xs font-medium text-slate-600">
+                  Overtime Hours
+                </span>
+                <select
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-950 shadow-sm"
+                  value={overtimeHours}
+                  onChange={(event) =>
+                    setOvertimeHours(Number(event.target.value))
+                  }
+                >
+                  {OVERTIME_HOUR_OPTIONS.map((hours) => (
+                    <option key={hours} value={hours}>
+                      {hours.toFixed(1)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
 
           {error ? (
             <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">

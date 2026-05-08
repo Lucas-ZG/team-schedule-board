@@ -101,27 +101,38 @@ export default function DayCell({
         {statuses.length === 0 ? (
           <p className="text-xs text-slate-400">No status</p>
         ) : (
-          statuses.map((status) => (
-            <button
-              type="button"
-              key={status.id}
-              onClick={(event) => {
-                event.stopPropagation();
-                onSelect(day, status);
-              }}
-              className="flex w-full items-center gap-1.5 text-left text-xs leading-5"
-            >
-              <span className="min-w-0 flex-1 truncate font-medium text-slate-700">
-                {getDisplayName(status)}
-              </span>
-              <span
-                className="max-w-[92px] truncate rounded border px-1.5 py-0.5 font-semibold"
-                style={getBadgeStyle(status)}
+          statuses.map((status) => {
+            const overtimeHours = Number(status.overtime_hours) || 0;
+            const showOvertime = status.overtime_enabled && overtimeHours > 0;
+            return (
+              <button
+                type="button"
+                key={status.id}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onSelect(day, status);
+                }}
+                className="block w-full text-left text-xs leading-5"
               >
-                {status.workplace?.name || "Unknown"}
-              </span>
-            </button>
-          ))
+                <div className="flex items-center gap-1.5">
+                  <span className="min-w-0 flex-1 truncate font-medium text-slate-700">
+                    {getDisplayName(status)}
+                  </span>
+                  <span
+                    className="max-w-[92px] truncate rounded border px-1.5 py-0.5 font-semibold"
+                    style={getBadgeStyle(status)}
+                  >
+                    {status.workplace?.name || "Unknown"}
+                  </span>
+                </div>
+                {showOvertime ? (
+                  <span className="mt-0.5 inline-block rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold leading-4 text-amber-700">
+                    OT: {overtimeHours.toFixed(1)}h
+                  </span>
+                ) : null}
+              </button>
+            );
+          })
         )}
       </div>
     </div>
