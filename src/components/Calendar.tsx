@@ -6,6 +6,9 @@ import type { User } from "@supabase/supabase-js";
 import BatchStatusModal from "@/components/BatchStatusModal";
 import DayCell from "@/components/DayCell";
 import Header from "@/components/Header";
+import OTPeriodSettings, {
+  computeAutoPeriod,
+} from "@/components/OTPeriodSettings";
 import StatusModal from "@/components/StatusModal";
 import {
   WEEKDAYS,
@@ -21,6 +24,7 @@ import {
 import type {
   CalendarStatus,
   DailyStatus,
+  OtPeriod,
   Profile,
   Workplace,
 } from "@/types/database";
@@ -33,6 +37,53 @@ const WORKPLACE_ORDER = [
   "Customer Site",
   "dayoff",
 ];
+
+function pad2(value: number) {
+  return value.toString().padStart(2, "0");
+}
+
+function toIsoDate(date: Date) {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+function firstOfMonth(reference: Date) {
+  return toIsoDate(new Date(reference.getFullYear(), reference.getMonth(), 1));
+}
+
+function lastOfMonth(reference: Date) {
+  return toIsoDate(
+    new Date(reference.getFullYear(), reference.getMonth() + 1, 0),
+  );
+}
+
+function formatPeriodLabel(startIso: string, endIso: string) {
+  const start = new Date(`${startIso}T00:00:00`);
+  const end = new Date(`${endIso}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return `${startIso} ~ ${endIso}`;
+  }
+  return `${start.getMonth() + 1}/${start.getDate()} ~ ${end.getMonth() + 1}/${end.getDate()}`;
+}
+
+function resolvePeriodRange(
+  period: OtPeriod | null,
+  fallbackReference: Date,
+): { start: string; end: string } {
+  if (period) {
+    if (period.auto_calculate && period.auto_start_day) {
+      const day = Math.min(28, Math.max(1, period.auto_start_day));
+      const computed = computeAutoPeriod(new Date(), day);
+      return { start: computed.start, end: computed.end };
+    }
+    if (period.start_date && period.end_date) {
+      return { start: period.start_date, end: period.end_date };
+    }
+  }
+  return {
+    start: firstOfMonth(fallbackReference),
+    end: lastOfMonth(fallbackReference),
+  };
+}
 
 function sortWorkplaces(workplaces: Workplace[]) {
   return [...workplaces].sort((left, right) => {
@@ -71,6 +122,9 @@ export default function Calendar() {
   const [error, setError] = useState<string | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
+  const [otPeriod, setOtPeriod] = useState<OtPeriod | null>(null);
+  const [otPeriodStatuses, setOtPeriodStatuses] = useState<DailyStatus[]>([]);
+  const [isOtSettingsOpen, setIsOtSettingsOpen] = useState(false);
 
   const monthDays = useMemo(
     () => buildMonthGrid(currentMonth),
@@ -97,13 +151,14 @@ export default function Calendar() {
     }, {});
   }, [statuses]);
 
-  const monthlyOvertimeSummary = useMemo(() => {
-    if (!firstMonthDate || !lastMonthDate) {
-      return [] as { userId: string; label: string; hours: number }[];
-    }
+  const otSummaryRange = useMemo(
+    () => resolvePeriodRange(otPeriod, currentMonth),
+    [otPeriod, currentMonth],
+  );
 
+  const otSummary = useMemo(() => {
     const totals = new Map<string, number>();
-    statuses.forEach((status) => {
+    otPeriodStatuses.forEach((status) => {
       if (!status.overtime_enabled) {
         return;
       }
@@ -111,7 +166,10 @@ export default function Calendar() {
       if (hours <= 0) {
         return;
       }
-      if (status.work_date < firstMonthDate || status.work_date > lastMonthDate) {
+      if (
+        status.work_date < otSummaryRange.start ||
+        status.work_date > otSummaryRange.end
+      ) {
         return;
       }
       totals.set(status.user_id, (totals.get(status.user_id) || 0) + hours);
@@ -130,7 +188,7 @@ export default function Calendar() {
         }
         return left.label.localeCompare(right.label);
       });
-  }, [statuses, profiles, firstMonthDate, lastMonthDate]);
+  }, [otPeriodStatuses, profiles, otSummaryRange]);
 
   const userProfile = useMemo(
     () => profiles.find((profile) => profile.id === user?.id) || null,
@@ -179,7 +237,12 @@ export default function Calendar() {
     setError(null);
 
     const supabase = getSupabaseClient();
-    const [profilesResult, workplacesResult, statusesResult] = await Promise.all([
+    const [
+      profilesResult,
+      workplacesResult,
+      statusesResult,
+      otPeriodResult,
+    ] = await Promise.all([
       supabase.from("profiles").select("*").order("display_name"),
       supabase
         .from("workplaces")
@@ -193,6 +256,12 @@ export default function Calendar() {
         .lte("work_date", lastMonthDate)
         .order("work_date", { ascending: true })
         .order("created_at", { ascending: true }),
+      supabase
+        .from("ot_periods")
+        .select("*")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
 
     const errorMessages = [
@@ -225,6 +294,9 @@ export default function Calendar() {
         workplace: workplaceMap.get(status.workplace_id),
       })),
     );
+    if (!otPeriodResult.error) {
+      setOtPeriod((otPeriodResult.data as OtPeriod | null) ?? null);
+    }
     setError(
       errorMessages.length > 0
         ? errorMessages.join("\n")
@@ -270,6 +342,45 @@ export default function Calendar() {
   useEffect(() => {
     loadMonthData();
   }, [loadMonthData]);
+
+  const reloadOtPeriod = useCallback(async () => {
+    if (!user) {
+      return;
+    }
+    const supabase = getSupabaseClient();
+    const { data, error: periodError } = await supabase
+      .from("ot_periods")
+      .select("*")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!periodError) {
+      setOtPeriod((data as OtPeriod | null) ?? null);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+    let cancelled = false;
+    const supabase = getSupabaseClient();
+    supabase
+      .from("daily_status")
+      .select("*")
+      .gte("work_date", otSummaryRange.start)
+      .lte("work_date", otSummaryRange.end)
+      .eq("overtime_enabled", true)
+      .then(({ data, error: rangeError }) => {
+        if (cancelled || rangeError) {
+          return;
+        }
+        setOtPeriodStatuses((data as DailyStatus[]) || []);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, otSummaryRange.start, otSummaryRange.end, statuses]);
 
   useEffect(() => {
     setSelectedDates(new Set());
@@ -515,21 +626,35 @@ export default function Calendar() {
         ) : null}
 
         <section className="mb-4 rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-3 shadow-soft">
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="text-sm font-semibold text-amber-900">
-              Monthly OT Summary
-            </h3>
-            <span className="text-xs font-medium text-amber-700">
-              {getMonthTitle(currentMonth)}
-            </span>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-amber-900">
+                Monthly OT Summary
+              </h3>
+              <p className="mt-0.5 text-xs font-medium text-amber-700">
+                {formatPeriodLabel(otSummaryRange.start, otSummaryRange.end)}
+                {otPeriod?.auto_calculate && otPeriod.auto_start_day
+                  ? ` · auto (day ${otPeriod.auto_start_day})`
+                  : ""}
+              </p>
+            </div>
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={() => setIsOtSettingsOpen(true)}
+                className="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+              >
+                Configure period
+              </button>
+            ) : null}
           </div>
-          {monthlyOvertimeSummary.length === 0 ? (
+          {otSummary.length === 0 ? (
             <p className="mt-2 text-xs text-amber-800/80">
-              No overtime recorded this month.
+              No overtime recorded this period.
             </p>
           ) : (
             <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-amber-900">
-              {monthlyOvertimeSummary.map((entry) => (
+              {otSummary.map((entry) => (
                 <li key={entry.userId} className="font-medium">
                   <span>{entry.label}</span>
                   <span className="text-amber-700"> : {entry.hours.toFixed(1)}h</span>
@@ -593,6 +718,17 @@ export default function Calendar() {
           }}
           onSave={handleSave}
           onDelete={handleDelete}
+        />
+      ) : null}
+
+      {isOtSettingsOpen && isAdmin ? (
+        <OTPeriodSettings
+          initialPeriod={otPeriod}
+          onClose={() => setIsOtSettingsOpen(false)}
+          onSaved={async () => {
+            setIsOtSettingsOpen(false);
+            await reloadOtPeriod();
+          }}
         />
       ) : null}
 

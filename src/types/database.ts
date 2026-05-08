@@ -111,6 +111,36 @@ export type Database = {
           },
         ];
       };
+      ot_periods: {
+        Row: {
+          id: string;
+          start_date: string;
+          end_date: string;
+          auto_calculate: boolean;
+          auto_start_day: number | null;
+          created_at: string | null;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          start_date: string;
+          end_date: string;
+          auto_calculate?: boolean;
+          auto_start_day?: number | null;
+          created_at?: string | null;
+          updated_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          start_date?: string;
+          end_date?: string;
+          auto_calculate?: boolean;
+          auto_start_day?: number | null;
+          created_at?: string | null;
+          updated_at?: string | null;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -122,6 +152,7 @@ export type Database = {
 export type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 export type Workplace = Database["public"]["Tables"]["workplaces"]["Row"];
 export type DailyStatus = Database["public"]["Tables"]["daily_status"]["Row"];
+export type OtPeriod = Database["public"]["Tables"]["ot_periods"]["Row"];
 
 export type CalendarStatus = DailyStatus & {
   profile?: Profile;
