@@ -1,0 +1,316 @@
+"use client";
+
+import { FormEvent, useMemo, useState } from "react";
+import * as XLSX from "xlsx";
+import { getSupabaseClient } from "@/lib/supabaseClient";
+import type { DailyStatus, Profile, Workplace } from "@/types/database";
+
+type ExportModalProps = {
+  onClose: () => void;
+};
+
+const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function pad2(value: number) {
+  return value.toString().padStart(2, "0");
+}
+
+function toIsoDate(date: Date) {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+function firstOfMonth(reference: Date) {
+  return toIsoDate(new Date(reference.getFullYear(), reference.getMonth(), 1));
+}
+
+function lastOfMonth(reference: Date) {
+  return toIsoDate(
+    new Date(reference.getFullYear(), reference.getMonth() + 1, 0),
+  );
+}
+
+function fileTag(isoDate: string) {
+  return isoDate.replace(/-/g, "");
+}
+
+function memberLabel(profile?: Profile | null) {
+  return profile?.display_name || profile?.email || "Unknown";
+}
+
+function formatDateLabel(isoDate: string) {
+  const date = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return isoDate;
+  }
+  return `${WEEKDAY_LABELS[date.getDay()]} ${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function enumerateDates(startIso: string, endIso: string): string[] {
+  const start = new Date(`${startIso}T00:00:00`);
+  const end = new Date(`${endIso}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return [];
+  }
+  const dates: string[] = [];
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    dates.push(toIsoDate(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
+}
+
+function workplaceTextFor(
+  rows: DailyStatus[],
+  workplaces: Map<string, Workplace>,
+): string {
+  if (rows.length === 0) {
+    return "";
+  }
+  const parts = rows
+    .map((row) => {
+      const workplace = workplaces.get(row.workplace_id);
+      if (!workplace) {
+        return "";
+      }
+      if (workplace.is_dayoff) {
+        return "Dayoff";
+      }
+      return workplace.name;
+    })
+    .filter((value): value is string => Boolean(value));
+  // De-dupe but keep insertion order.
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  parts.forEach((value) => {
+    if (!seen.has(value)) {
+      seen.add(value);
+      unique.push(value);
+    }
+  });
+  return unique.join("/");
+}
+
+export default function ExportModal({ onClose }: ExportModalProps) {
+  const defaults = useMemo(() => {
+    const now = new Date();
+    return {
+      start: firstOfMonth(now),
+      end: lastOfMonth(now),
+    };
+  }, []);
+
+  const [startDate, setStartDate] = useState<string>(defaults.start);
+  const [endDate, setEndDate] = useState<string>(defaults.end);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+
+    if (!startDate || !endDate) {
+      setError("Please pick a start date and an end date.");
+      return;
+    }
+    if (endDate < startDate) {
+      setError("End date must be on or after start date.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const supabase = getSupabaseClient();
+
+      const [profilesResult, workplacesResult, statusesResult] = await Promise.all([
+        supabase.from("profiles").select("*").order("display_name"),
+        supabase.from("workplaces").select("*"),
+        supabase
+          .from("daily_status")
+          .select("*")
+          .gte("work_date", startDate)
+          .lte("work_date", endDate)
+          .order("work_date", { ascending: true })
+          .order("created_at", { ascending: true }),
+      ]);
+
+      if (profilesResult.error) throw profilesResult.error;
+      if (workplacesResult.error) throw workplacesResult.error;
+      if (statusesResult.error) throw statusesResult.error;
+
+      const profiles = (profilesResult.data as Profile[]) || [];
+      const workplaceList = (workplacesResult.data as Workplace[]) || [];
+      const statuses = (statusesResult.data as DailyStatus[]) || [];
+
+      const workplaceMap = new Map(workplaceList.map((w) => [w.id, w]));
+      const dates = enumerateDates(startDate, endDate);
+
+      // Sort members by display name (case-insensitive) to make output deterministic.
+      const sortedProfiles = [...profiles].sort((left, right) =>
+        memberLabel(left).localeCompare(memberLabel(right), undefined, {
+          sensitivity: "base",
+        }),
+      );
+
+      // Group statuses by user -> date -> rows[]
+      const byUserDate = new Map<string, Map<string, DailyStatus[]>>();
+      statuses.forEach((row) => {
+        let userMap = byUserDate.get(row.user_id);
+        if (!userMap) {
+          userMap = new Map<string, DailyStatus[]>();
+          byUserDate.set(row.user_id, userMap);
+        }
+        const existing = userMap.get(row.work_date);
+        if (existing) {
+          existing.push(row);
+        } else {
+          userMap.set(row.work_date, [row]);
+        }
+      });
+
+      // Build a 2D array-of-arrays for the worksheet.
+      // Row 0: per member, the display name in the date column; workplace column blank (merged).
+      // Row 1..N: date label + workplace text.
+      const headerRow: string[] = [];
+      sortedProfiles.forEach((profile) => {
+        headerRow.push(memberLabel(profile));
+        headerRow.push("");
+      });
+
+      const dataRows: string[][] = dates.map((iso) => {
+        const row: string[] = [];
+        sortedProfiles.forEach((profile) => {
+          const userMap = byUserDate.get(profile.id);
+          const dayRows = userMap?.get(iso) || [];
+          row.push(formatDateLabel(iso));
+          row.push(workplaceTextFor(dayRows, workplaceMap));
+        });
+        return row;
+      });
+
+      const aoa: string[][] = [headerRow, ...dataRows];
+      const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+
+      // Merge each pair of header cells (display_name spans two columns).
+      worksheet["!merges"] = sortedProfiles.map((_, index) => ({
+        s: { r: 0, c: index * 2 },
+        e: { r: 0, c: index * 2 + 1 },
+      }));
+
+      // Column widths: alternating 10 (date) / 15 (workplace).
+      worksheet["!cols"] = sortedProfiles.flatMap(() => [
+        { wch: 10 },
+        { wch: 15 },
+      ]);
+
+      // Bold the merged header cells.
+      sortedProfiles.forEach((_, index) => {
+        const cellAddress = XLSX.utils.encode_cell({ r: 0, c: index * 2 });
+        const cell = worksheet[cellAddress];
+        if (cell) {
+          cell.s = {
+            font: { bold: true },
+            alignment: { horizontal: "center", vertical: "center" },
+          };
+        }
+      });
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Schedule");
+
+      const filename = `schedule_${fileTag(startDate)}_${fileTag(endDate)}.xlsx`;
+      XLSX.writeFile(workbook, filename);
+
+      setBusy(false);
+      onClose();
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to export schedule.";
+      setError(message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/40 px-4 py-6 sm:items-center">
+      <section className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-lg bg-white shadow-soft">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.12em] text-blue-600">
+              Admin
+            </p>
+            <h2 className="mt-1 text-xl font-semibold text-slate-950">
+              Export Schedule
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Download an Excel file of every member&apos;s workplaces in the chosen date range.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+          >
+            Cancel
+          </button>
+        </div>
+
+        <form className="px-5 py-5" onSubmit={handleSubmit}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700">
+                Start date
+              </span>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(event) => setStartDate(event.target.value)}
+                disabled={busy}
+                className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-slate-950 shadow-sm disabled:bg-slate-100"
+                required
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700">
+                End date
+              </span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(event) => setEndDate(event.target.value)}
+                disabled={busy}
+                className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-slate-950 shadow-sm disabled:bg-slate-100"
+                required
+              />
+            </label>
+          </div>
+
+          {error ? (
+            <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </div>
+          ) : null}
+
+          <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={busy}
+              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={busy}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+            >
+              {busy ? "Exporting..." : "Export Excel"}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}

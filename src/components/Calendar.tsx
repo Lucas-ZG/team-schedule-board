@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import BatchStatusModal from "@/components/BatchStatusModal";
 import DayCell from "@/components/DayCell";
+import ExportModal from "@/components/ExportModal";
 import Header from "@/components/Header";
 import OTPeriodSettings, {
   computeAutoPeriod,
@@ -125,6 +126,7 @@ export default function Calendar() {
   const [otPeriod, setOtPeriod] = useState<OtPeriod | null>(null);
   const [otPeriodStatuses, setOtPeriodStatuses] = useState<DailyStatus[]>([]);
   const [isOtSettingsOpen, setIsOtSettingsOpen] = useState(false);
+  const [isExportOpen, setIsExportOpen] = useState(false);
 
   const monthDays = useMemo(
     () => buildMonthGrid(currentMonth),
@@ -560,6 +562,15 @@ export default function Calendar() {
           </div>
 
           <div className="grid grid-cols-2 gap-2 sm:flex">
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={() => setIsExportOpen(true)}
+                className="rounded-md border border-emerald-300 bg-white px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50"
+              >
+                Export
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => {
@@ -730,6 +741,10 @@ export default function Calendar() {
             await reloadOtPeriod();
           }}
         />
+      ) : null}
+
+      {isExportOpen && isAdmin ? (
+        <ExportModal onClose={() => setIsExportOpen(false)} />
       ) : null}
 
       {isBatchModalOpen && user ? (
