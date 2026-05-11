@@ -44,6 +44,15 @@ function getBadgeStyle(status: CalendarStatus) {
     };
   }
 
+  // Multi-workplace: unified purple styling so the user can spot mixed days at a glance.
+  if (resolved.length >= 2) {
+    return {
+      backgroundColor: "#f3e8ff", // bg-purple-100
+      borderColor: "#d8b4fe", // border-purple-300
+      color: "#7e22ce", // text-purple-700
+    };
+  }
+
   const color = resolved[0]?.color || "#64748b";
   return {
     backgroundColor: `${color}1A`,

@@ -307,14 +307,14 @@ export default function StatusModal({
                   supabase/add_admin_role.sql, then refresh this page.
                 </p>
               ) : (
-                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <div className="mt-2 flex flex-wrap gap-2">
                   {workplaces.map((workplace) => {
                     const checked = workplaceIds.includes(workplace.id);
                     return (
                       <label
                         key={workplace.id}
                         className={[
-                          "flex items-center gap-2 rounded-md border px-3 py-2 text-sm",
+                          "inline-flex min-w-fit items-center gap-2 whitespace-nowrap rounded-md border px-2.5 py-1.5 text-sm",
                           checked
                             ? workplace.is_dayoff
                               ? "border-red-300 bg-red-50 text-red-800"
@@ -330,7 +330,7 @@ export default function StatusModal({
                           onChange={() => toggleWorkplace(workplace.id)}
                           disabled={!canEdit}
                         />
-                        <span className="truncate font-medium">
+                        <span className="font-medium">
                           {workplace.is_dayoff ? "Dayoff" : workplace.name}
                         </span>
                       </label>
