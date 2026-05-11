@@ -83,9 +83,15 @@ export default function StatusModal({
 }: StatusModalProps) {
   const sortedProfiles = useMemo(
     () =>
-      [...profiles].sort((left, right) =>
-        memberLabel(left).localeCompare(memberLabel(right)),
-      ),
+      [...profiles].sort((left, right) => {
+        const delta =
+          (left.sort_order ?? Number.MAX_SAFE_INTEGER) -
+          (right.sort_order ?? Number.MAX_SAFE_INTEGER);
+        if (delta !== 0) {
+          return delta;
+        }
+        return memberLabel(left).localeCompare(memberLabel(right));
+      }),
     [profiles],
   );
 

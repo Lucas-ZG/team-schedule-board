@@ -245,7 +245,11 @@ export default function Calendar() {
       statusesResult,
       otPeriodResult,
     ] = await Promise.all([
-      supabase.from("profiles").select("*").order("display_name"),
+      supabase
+        .from("profiles")
+        .select("*")
+        .order("sort_order", { ascending: true })
+        .order("display_name", { ascending: true }),
       supabase
         .from("workplaces")
         .select("*")

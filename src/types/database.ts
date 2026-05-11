@@ -15,6 +15,7 @@ export type Database = {
           display_name: string | null;
           email: string | null;
           role: "admin" | "user";
+          sort_order: number;
           created_at: string;
         };
         Insert: {
@@ -22,6 +23,7 @@ export type Database = {
           display_name?: string | null;
           email?: string | null;
           role?: "admin" | "user";
+          sort_order?: number;
           created_at?: string;
         };
         Update: {
@@ -29,6 +31,7 @@ export type Database = {
           display_name?: string | null;
           email?: string | null;
           role?: "admin" | "user";
+          sort_order?: number;
           created_at?: string;
         };
         Relationships: [];

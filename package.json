@@ -14,7 +14,7 @@
     "next": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "xlsx": "^0.18.5"
+    "xlsx-js-style": "^1.2.0"
   },
   "devDependencies": {
     "@types/node": "latest",

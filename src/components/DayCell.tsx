@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import type { CalendarDay } from "@/lib/calendar";
 import type { CalendarStatus } from "@/types/database";
 
@@ -69,6 +70,22 @@ export default function DayCell({
   isSelected,
   onSelect,
 }: DayCellProps) {
+  const sortedStatuses = useMemo(() => {
+    const orderOf = (status: CalendarStatus) => {
+      const value = status.profile?.sort_order;
+      return typeof value === "number" ? value : Number.MAX_SAFE_INTEGER;
+    };
+    return [...statuses].sort((left, right) => {
+      const delta = orderOf(left) - orderOf(right);
+      if (delta !== 0) {
+        return delta;
+      }
+      const leftName = left.profile?.display_name || "";
+      const rightName = right.profile?.display_name || "";
+      return leftName.localeCompare(rightName);
+    });
+  }, [statuses]);
+
   if (!day.isCurrentMonth) {
     return (
       <div
@@ -127,10 +144,10 @@ export default function DayCell({
       </div>
 
       <div className="space-y-1.5">
-        {statuses.length === 0 ? (
+        {sortedStatuses.length === 0 ? (
           <p className="text-xs text-slate-400">No status</p>
         ) : (
-          statuses.map((status) => {
+          sortedStatuses.map((status) => {
             const overtimeHours = Number(status.overtime_hours) || 0;
             const showOvertime = status.overtime_enabled && overtimeHours > 0;
             return (

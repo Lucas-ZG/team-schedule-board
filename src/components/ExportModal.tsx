@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx-js-style";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 import type { DailyStatus, Profile, Workplace } from "@/types/database";
 
@@ -149,12 +149,19 @@ export default function ExportModal({ onClose }: ExportModalProps) {
       const workplaceMap = new Map(workplaceList.map((w) => [w.id, w]));
       const dates = enumerateDates(startDate, endDate);
 
-      // Sort members by display name (case-insensitive) to make output deterministic.
-      const sortedProfiles = [...profiles].sort((left, right) =>
-        memberLabel(left).localeCompare(memberLabel(right), undefined, {
+      // Sort members by sort_order ASC (matching the calendar). Ties broken by
+      // display name so the output remains deterministic.
+      const sortedProfiles = [...profiles].sort((left, right) => {
+        const delta =
+          (left.sort_order ?? Number.MAX_SAFE_INTEGER) -
+          (right.sort_order ?? Number.MAX_SAFE_INTEGER);
+        if (delta !== 0) {
+          return delta;
+        }
+        return memberLabel(left).localeCompare(memberLabel(right), undefined, {
           sensitivity: "base",
-        }),
-      );
+        });
+      });
 
       // Group statuses by user -> date -> rows[]
       const byUserDate = new Map<string, Map<string, DailyStatus[]>>();
@@ -249,16 +256,46 @@ export default function ExportModal({ onClose }: ExportModalProps) {
         { wch: 15 },
       ]);
 
-      // Bold the merged header cells.
-      sortedProfiles.forEach((_, index) => {
-        const cellAddress = XLSX.utils.encode_cell({ r: 0, c: index * 2 });
-        const cell = worksheet[cellAddress];
-        if (cell) {
+      // Stamp every cell with center alignment + a thin black border. The
+      // merged display-name cell (row 0) is also bolded. Note: SheetJS
+      // community edition reads/writes cell.s only in some configurations;
+      // for full styling support in production you may need xlsx-js-style.
+      const thinBorder = { style: "thin", color: { rgb: "000000" } } as const;
+      const baseAlignment = {
+        horizontal: "center" as const,
+        vertical: "center" as const,
+        wrapText: true,
+      };
+      const baseBorder = {
+        top: thinBorder,
+        bottom: thinBorder,
+        left: thinBorder,
+        right: thinBorder,
+      };
+
+      const totalRows = aoa.length;
+      const totalCols = sortedProfiles.length * 2;
+      for (let r = 0; r < totalRows; r += 1) {
+        for (let c = 0; c < totalCols; c += 1) {
+          const address = XLSX.utils.encode_cell({ r, c });
+          let cell = worksheet[address];
+          if (!cell) {
+            // Force-create empty cells so borders show up on blank workplace days.
+            cell = { t: "s", v: "" };
+            worksheet[address] = cell;
+          }
           cell.s = {
-            font: { bold: true },
-            alignment: { horizontal: "center", vertical: "center" },
+            alignment: baseAlignment,
+            border: baseBorder,
+            ...(r === 0 ? { font: { bold: true } } : {}),
           };
         }
+      }
+
+      // Ensure the worksheet range covers every cell we just stamped.
+      worksheet["!ref"] = XLSX.utils.encode_range({
+        s: { r: 0, c: 0 },
+        e: { r: Math.max(totalRows - 1, 0), c: Math.max(totalCols - 1, 0) },
       });
 
       const workbook = XLSX.utils.book_new();
