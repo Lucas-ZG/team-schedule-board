@@ -66,6 +66,7 @@ export type Database = {
           user_id: string;
           work_date: string;
           workplace_id: string;
+          workplace_ids: string[] | null;
           note: string | null;
           overtime_enabled: boolean;
           overtime_hours: number;
@@ -77,6 +78,7 @@ export type Database = {
           user_id: string;
           work_date: string;
           workplace_id: string;
+          workplace_ids?: string[] | null;
           note?: string | null;
           overtime_enabled?: boolean;
           overtime_hours?: number;
@@ -88,6 +90,7 @@ export type Database = {
           user_id?: string;
           work_date?: string;
           workplace_id?: string;
+          workplace_ids?: string[] | null;
           note?: string | null;
           overtime_enabled?: boolean;
           overtime_hours?: number;
@@ -157,4 +160,5 @@ export type OtPeriod = Database["public"]["Tables"]["ot_periods"]["Row"];
 export type CalendarStatus = DailyStatus & {
   profile?: Profile;
   workplace?: Workplace;
+  workplaces?: Workplace[];
 };

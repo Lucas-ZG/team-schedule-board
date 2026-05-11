@@ -15,10 +15,28 @@ function getDisplayName(status: CalendarStatus) {
   return status.profile?.display_name || "Unknown";
 }
 
-function getBadgeStyle(status: CalendarStatus) {
-  const color = status.workplace?.color || "#64748b";
+function getResolvedWorkplaces(status: CalendarStatus) {
+  if (status.workplaces && status.workplaces.length > 0) {
+    return status.workplaces;
+  }
+  return status.workplace ? [status.workplace] : [];
+}
 
-  if (status.workplace?.is_dayoff) {
+function getWorkplaceLabel(status: CalendarStatus) {
+  const resolved = getResolvedWorkplaces(status);
+  if (resolved.length === 0) {
+    return "Unknown";
+  }
+  return resolved
+    .map((entry) => (entry.is_dayoff ? "Dayoff" : entry.name))
+    .join("/");
+}
+
+function getBadgeStyle(status: CalendarStatus) {
+  const resolved = getResolvedWorkplaces(status);
+  const dayoff = resolved.some((entry) => entry.is_dayoff);
+
+  if (dayoff) {
     return {
       backgroundColor: "#fee2e2",
       borderColor: "#fecaca",
@@ -26,6 +44,7 @@ function getBadgeStyle(status: CalendarStatus) {
     };
   }
 
+  const color = resolved[0]?.color || "#64748b";
   return {
     backgroundColor: `${color}1A`,
     borderColor: `${color}55`,
@@ -119,10 +138,10 @@ export default function DayCell({
                     {getDisplayName(status)}
                   </span>
                   <span
-                    className="max-w-[92px] truncate rounded border px-1.5 py-0.5 font-semibold"
+                    className="max-w-[120px] truncate rounded border px-1.5 py-0.5 font-semibold"
                     style={getBadgeStyle(status)}
                   >
-                    {status.workplace?.name || "Unknown"}
+                    {getWorkplaceLabel(status)}
                   </span>
                 </div>
                 {showOvertime ? (

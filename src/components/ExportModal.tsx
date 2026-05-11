@@ -67,18 +67,22 @@ function workplaceTextFor(
   if (rows.length === 0) {
     return "";
   }
-  const parts = rows
-    .map((row) => {
-      const workplace = workplaces.get(row.workplace_id);
+  const parts: string[] = [];
+  rows.forEach((row) => {
+    const ids =
+      row.workplace_ids && row.workplace_ids.length > 0
+        ? row.workplace_ids
+        : row.workplace_id
+          ? [row.workplace_id]
+          : [];
+    ids.forEach((id) => {
+      const workplace = workplaces.get(id);
       if (!workplace) {
-        return "";
+        return;
       }
-      if (workplace.is_dayoff) {
-        return "Dayoff";
-      }
-      return workplace.name;
-    })
-    .filter((value): value is string => Boolean(value));
+      parts.push(workplace.is_dayoff ? "Dayoff" : workplace.name);
+    });
+  });
   // De-dupe but keep insertion order.
   const seen = new Set<string>();
   const unique: string[] = [];
@@ -191,11 +195,53 @@ export default function ExportModal({ onClose }: ExportModalProps) {
       const aoa: string[][] = [headerRow, ...dataRows];
       const worksheet = XLSX.utils.aoa_to_sheet(aoa);
 
-      // Merge each pair of header cells (display_name spans two columns).
-      worksheet["!merges"] = sortedProfiles.map((_, index) => ({
-        s: { r: 0, c: index * 2 },
-        e: { r: 0, c: index * 2 + 1 },
-      }));
+      // Merge each pair of header cells (display_name spans two columns), plus
+      // for each member's workplace column, merge runs of identical non-empty
+      // values across consecutive rows.
+      const merges: { s: { r: number; c: number }; e: { r: number; c: number } }[] = [];
+
+      sortedProfiles.forEach((_, index) => {
+        merges.push({
+          s: { r: 0, c: index * 2 },
+          e: { r: 0, c: index * 2 + 1 },
+        });
+
+        const workplaceCol = index * 2 + 1;
+        let runStart = -1;
+        let runValue = "";
+
+        const flushRun = (endRow: number) => {
+          if (runStart >= 0 && endRow > runStart && runValue !== "") {
+            merges.push({
+              s: { r: runStart, c: workplaceCol },
+              e: { r: endRow, c: workplaceCol },
+            });
+          }
+        };
+
+        // Data rows are 1..dataRows.length.
+        for (let row = 1; row <= dataRows.length; row += 1) {
+          const value = dataRows[row - 1][workplaceCol] || "";
+          if (value !== "" && value === runValue) {
+            // continue the current run
+            continue;
+          }
+          // run ended on previous row
+          flushRun(row - 1);
+          // start a new run only when the value is non-empty
+          if (value !== "") {
+            runStart = row;
+            runValue = value;
+          } else {
+            runStart = -1;
+            runValue = "";
+          }
+        }
+        // Flush the final run, if any.
+        flushRun(dataRows.length);
+      });
+
+      worksheet["!merges"] = merges;
 
       // Column widths: alternating 10 (date) / 15 (workplace).
       worksheet["!cols"] = sortedProfiles.flatMap(() => [

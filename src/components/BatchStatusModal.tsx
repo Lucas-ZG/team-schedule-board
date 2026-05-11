@@ -14,7 +14,7 @@ type BatchStatusModalProps = {
   onClose: () => void;
   onApply: (payload: {
     userId: string;
-    workplaceId: string;
+    workplaceIds: string[];
     note: string;
     overtimeEnabled: boolean;
     overtimeHours: number;
@@ -47,10 +47,15 @@ export default function BatchStatusModal({
     [profiles],
   );
   const [selectedUserId, setSelectedUserId] = useState(currentUserId);
-  const [workplaceId, setWorkplaceId] = useState("");
+  const [workplaceIds, setWorkplaceIds] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const [overtimeEnabled, setOvertimeEnabled] = useState(false);
   const [overtimeHours, setOvertimeHours] = useState<number>(DEFAULT_OVERTIME_HOURS);
+
+  const workplaceById = useMemo(
+    () => new Map(workplaces.map((entry) => [entry.id, entry])),
+    [workplaces],
+  );
 
   useEffect(() => {
     if (!isAdmin) {
@@ -65,18 +70,39 @@ export default function BatchStatusModal({
   }, [currentUserId, isAdmin, profiles]);
 
   useEffect(() => {
-    setWorkplaceId(workplaces[0]?.id || "");
+    setWorkplaceIds((current) =>
+      current.filter((id) => workplaces.some((entry) => entry.id === id)),
+    );
   }, [workplaces]);
+
+  function toggleWorkplace(id: string) {
+    const target = workplaceById.get(id);
+    const isDayoff = Boolean(target?.is_dayoff);
+    setWorkplaceIds((current) => {
+      const has = current.includes(id);
+      if (has) {
+        return current.filter((entry) => entry !== id);
+      }
+      if (isDayoff) {
+        return [id];
+      }
+      const filtered = current.filter((entry) => {
+        const workplace = workplaceById.get(entry);
+        return workplace ? !workplace.is_dayoff : true;
+      });
+      return [...filtered, id];
+    });
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedUserId || !workplaceId || selectedDateCount === 0) {
+    if (!selectedUserId || workplaceIds.length === 0 || selectedDateCount === 0) {
       return;
     }
 
     await onApply({
       userId: selectedUserId,
-      workplaceId,
+      workplaceIds,
       note,
       overtimeEnabled,
       overtimeHours: overtimeEnabled ? overtimeHours : 0,
@@ -128,27 +154,48 @@ export default function BatchStatusModal({
             </label>
           ) : null}
 
-          <label className={isAdmin ? "mt-4 block" : "block"}>
-            <span className="text-sm font-medium text-slate-700">
+          <fieldset className={isAdmin ? "mt-4" : ""} disabled={workplaces.length === 0}>
+            <legend className="text-sm font-medium text-slate-700">
               Workplace
-            </span>
-            <select
-              className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-slate-950 shadow-sm disabled:bg-slate-100 disabled:text-slate-500"
-              value={workplaceId}
-              onChange={(event) => setWorkplaceId(event.target.value)}
-              disabled={workplaces.length === 0}
-              required
-            >
-              {workplaces.length === 0 ? (
-                <option value="">No active workplaces</option>
-              ) : null}
-              {workplaces.map((workplace) => (
-                <option key={workplace.id} value={workplace.id}>
-                  {workplace.name}
-                </option>
-              ))}
-            </select>
-          </label>
+            </legend>
+            <p className="mt-1 text-xs text-slate-500">
+              Select one or more. Dayoff is exclusive.
+            </p>
+            {workplaces.length === 0 ? (
+              <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                No active workplaces found.
+              </p>
+            ) : (
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {workplaces.map((workplace) => {
+                  const checked = workplaceIds.includes(workplace.id);
+                  return (
+                    <label
+                      key={workplace.id}
+                      className={[
+                        "flex items-center gap-2 rounded-md border px-3 py-2 text-sm cursor-pointer",
+                        checked
+                          ? workplace.is_dayoff
+                            ? "border-red-300 bg-red-50 text-red-800"
+                            : "border-blue-300 bg-blue-50 text-blue-900"
+                          : "border-slate-200 bg-white text-slate-700",
+                      ].join(" ")}
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        checked={checked}
+                        onChange={() => toggleWorkplace(workplace.id)}
+                      />
+                      <span className="truncate font-medium">
+                        {workplace.is_dayoff ? "Dayoff" : workplace.name}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </fieldset>
 
           <label className="mt-4 block">
             <span className="text-sm font-medium text-slate-700">Note</span>
@@ -213,7 +260,7 @@ export default function BatchStatusModal({
               disabled={
                 saving ||
                 !selectedUserId ||
-                !workplaceId ||
+                workplaceIds.length === 0 ||
                 workplaces.length === 0 ||
                 selectedDateCount === 0
               }

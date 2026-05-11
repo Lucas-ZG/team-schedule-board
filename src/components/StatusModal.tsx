@@ -16,7 +16,7 @@ type StatusModalProps = {
   onClose: () => void;
   onSave: (payload: {
     userId: string;
-    workplaceId: string;
+    workplaceIds: string[];
     note: string;
     overtimeEnabled: boolean;
     overtimeHours: number;
@@ -35,8 +35,36 @@ function statusMemberLabel(status: CalendarStatus) {
   return memberLabel(status.profile);
 }
 
-function workplaceLabel(status: CalendarStatus) {
-  return status.workplace?.name || "Unknown";
+function resolveStatusWorkplaces(
+  status: CalendarStatus,
+  workplaces: Workplace[],
+): Workplace[] {
+  const workplaceById = new Map(workplaces.map((entry) => [entry.id, entry]));
+  const ids =
+    status.workplace_ids && status.workplace_ids.length > 0
+      ? status.workplace_ids
+      : status.workplace_id
+        ? [status.workplace_id]
+        : [];
+  return ids
+    .map((id) => workplaceById.get(id) || status.workplace)
+    .filter((entry): entry is Workplace => Boolean(entry));
+}
+
+function statusWorkplaceText(status: CalendarStatus, workplaces: Workplace[]) {
+  const resolved = resolveStatusWorkplaces(status, workplaces);
+  if (resolved.length === 0) {
+    return "Unknown";
+  }
+  return resolved
+    .map((entry) => (entry.is_dayoff ? "Dayoff" : entry.name))
+    .join("/");
+}
+
+function statusIsDayoff(status: CalendarStatus, workplaces: Workplace[]) {
+  return resolveStatusWorkplaces(status, workplaces).some(
+    (entry) => entry.is_dayoff,
+  );
 }
 
 export default function StatusModal({
@@ -76,10 +104,15 @@ export default function StatusModal({
     [statuses, targetUserId],
   );
   const canEdit = isAdmin || targetUserId === currentUserId;
-  const [workplaceId, setWorkplaceId] = useState("");
+  const [workplaceIds, setWorkplaceIds] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const [overtimeEnabled, setOvertimeEnabled] = useState(false);
   const [overtimeHours, setOvertimeHours] = useState<number>(DEFAULT_OVERTIME_HOURS);
+
+  const workplaceById = useMemo(
+    () => new Map(workplaces.map((entry) => [entry.id, entry])),
+    [workplaces],
+  );
 
   useEffect(() => {
     if (!isAdmin) {
@@ -98,15 +131,15 @@ export default function StatusModal({
   }, [currentUserId, isAdmin, profiles, selectedStatusUserId]);
 
   useEffect(() => {
-    const statusWorkplaceIsAvailable = workplaces.some(
-      (workplace) => workplace.id === targetStatus?.workplace_id,
-    );
-
-    setWorkplaceId(
-      statusWorkplaceIsAvailable
-        ? targetStatus!.workplace_id
-        : workplaces[0]?.id || "",
-    );
+    const availableIds = new Set(workplaces.map((entry) => entry.id));
+    const existingIds =
+      targetStatus?.workplace_ids && targetStatus.workplace_ids.length > 0
+        ? targetStatus.workplace_ids
+        : targetStatus?.workplace_id
+          ? [targetStatus.workplace_id]
+          : [];
+    const filtered = existingIds.filter((id) => availableIds.has(id));
+    setWorkplaceIds(filtered);
     setNote(targetStatus?.note || "");
     setOvertimeEnabled(Boolean(targetStatus?.overtime_enabled));
     setOvertimeHours(
@@ -116,15 +149,39 @@ export default function StatusModal({
     );
   }, [targetStatus, workplaces]);
 
+  function toggleWorkplace(id: string) {
+    if (!canEdit) {
+      return;
+    }
+    const target = workplaceById.get(id);
+    const isDayoff = Boolean(target?.is_dayoff);
+
+    setWorkplaceIds((current) => {
+      const has = current.includes(id);
+      if (has) {
+        return current.filter((entry) => entry !== id);
+      }
+      if (isDayoff) {
+        return [id];
+      }
+      // Selecting a non-dayoff option clears any previously selected dayoff.
+      const filtered = current.filter((entry) => {
+        const workplace = workplaceById.get(entry);
+        return workplace ? !workplace.is_dayoff : true;
+      });
+      return [...filtered, id];
+    });
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canEdit || !targetUserId || !workplaceId) {
+    if (!canEdit || !targetUserId || workplaceIds.length === 0) {
       return;
     }
 
     await onSave({
       userId: targetUserId,
-      workplaceId,
+      workplaceIds,
       note,
       overtimeEnabled,
       overtimeHours: overtimeEnabled ? overtimeHours : 0,
@@ -187,12 +244,12 @@ export default function StatusModal({
                       <span
                         className={[
                           "rounded border px-2 py-0.5 text-xs font-semibold",
-                          status.workplace?.is_dayoff
+                          statusIsDayoff(status, workplaces)
                             ? "border-red-200 bg-red-100 text-red-700"
                             : "border-slate-200 bg-white text-slate-700",
                         ].join(" ")}
                       >
-                        {workplaceLabel(status)}
+                        {statusWorkplaceText(status, workplaces)}
                       </span>
                     </div>
                     {status.note ? (
@@ -237,34 +294,51 @@ export default function StatusModal({
               </p>
             ) : null}
 
-            <label className="mt-3 block">
-              <span className="text-sm font-medium text-slate-700">
+            <fieldset className="mt-3" disabled={!canEdit || workplaces.length === 0}>
+              <legend className="text-sm font-medium text-slate-700">
                 Workplace
-              </span>
-              <select
-                className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-slate-950 shadow-sm disabled:bg-slate-100 disabled:text-slate-500"
-                value={workplaceId}
-                onChange={(event) => setWorkplaceId(event.target.value)}
-                disabled={!canEdit || workplaces.length === 0}
-                required
-              >
-                {workplaces.length === 0 ? (
-                  <option value="">No active workplaces</option>
-                ) : null}
-                {workplaces.map((workplace) => (
-                  <option key={workplace.id} value={workplace.id}>
-                    {workplace.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            {workplaces.length === 0 ? (
-              <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                No active workplaces found. Run supabase/schema.sql or
-                supabase/add_admin_role.sql, then refresh this page.
+              </legend>
+              <p className="mt-1 text-xs text-slate-500">
+                Select one or more. Dayoff is exclusive.
               </p>
-            ) : null}
+              {workplaces.length === 0 ? (
+                <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  No active workplaces found. Run supabase/schema.sql or
+                  supabase/add_admin_role.sql, then refresh this page.
+                </p>
+              ) : (
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {workplaces.map((workplace) => {
+                    const checked = workplaceIds.includes(workplace.id);
+                    return (
+                      <label
+                        key={workplace.id}
+                        className={[
+                          "flex items-center gap-2 rounded-md border px-3 py-2 text-sm",
+                          checked
+                            ? workplace.is_dayoff
+                              ? "border-red-300 bg-red-50 text-red-800"
+                              : "border-blue-300 bg-blue-50 text-blue-900"
+                            : "border-slate-200 bg-white text-slate-700",
+                          canEdit ? "cursor-pointer" : "cursor-not-allowed",
+                        ].join(" ")}
+                      >
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          checked={checked}
+                          onChange={() => toggleWorkplace(workplace.id)}
+                          disabled={!canEdit}
+                        />
+                        <span className="truncate font-medium">
+                          {workplace.is_dayoff ? "Dayoff" : workplace.name}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </fieldset>
 
             <label className="mt-4 block">
               <span className="text-sm font-medium text-slate-700">Note</span>
@@ -329,7 +403,12 @@ export default function StatusModal({
               </button>
               <button
                 type="submit"
-                disabled={!canEdit || saving || !workplaceId || workplaces.length === 0}
+                disabled={
+                  !canEdit ||
+                  saving ||
+                  workplaceIds.length === 0 ||
+                  workplaces.length === 0
+                }
                 className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
               >
                 {saving ? "Saving..." : "Save"}

@@ -290,11 +290,23 @@ export default function Calendar() {
     setProfiles(nextProfiles);
     setWorkplaces(nextWorkplaces);
     setStatuses(
-      ((statusesResult.error ? [] : statusesResult.data || []) as DailyStatus[]).map((status) => ({
-        ...status,
-        profile: profileMap.get(status.user_id),
-        workplace: workplaceMap.get(status.workplace_id),
-      })),
+      ((statusesResult.error ? [] : statusesResult.data || []) as DailyStatus[]).map((status) => {
+        const ids =
+          status.workplace_ids && status.workplace_ids.length > 0
+            ? status.workplace_ids
+            : status.workplace_id
+              ? [status.workplace_id]
+              : [];
+        const resolved = ids
+          .map((id) => workplaceMap.get(id))
+          .filter((entry): entry is Workplace => Boolean(entry));
+        return {
+          ...status,
+          profile: profileMap.get(status.user_id),
+          workplace: workplaceMap.get(status.workplace_id),
+          workplaces: resolved,
+        };
+      }),
     );
     if (!otPeriodResult.error) {
       setOtPeriod((otPeriodResult.data as OtPeriod | null) ?? null);
@@ -398,12 +410,12 @@ export default function Calendar() {
 
   async function handleSave(payload: {
     userId: string;
-    workplaceId: string;
+    workplaceIds: string[];
     note: string;
     overtimeEnabled: boolean;
     overtimeHours: number;
   }) {
-    if (!user || !selectedDay) {
+    if (!user || !selectedDay || payload.workplaceIds.length === 0) {
       return;
     }
 
@@ -419,7 +431,8 @@ export default function Calendar() {
     );
 
     const savePayload = {
-      workplace_id: payload.workplaceId,
+      workplace_id: payload.workplaceIds[0],
+      workplace_ids: payload.workplaceIds,
       note: payload.note.trim() || null,
       overtime_enabled: payload.overtimeEnabled,
       overtime_hours: payload.overtimeEnabled ? payload.overtimeHours : 0,
@@ -487,12 +500,12 @@ export default function Calendar() {
 
   async function handleBatchApply(payload: {
     userId: string;
-    workplaceId: string;
+    workplaceIds: string[];
     note: string;
     overtimeEnabled: boolean;
     overtimeHours: number;
   }) {
-    if (!user || selectedDateList.length === 0) {
+    if (!user || selectedDateList.length === 0 || payload.workplaceIds.length === 0) {
       return;
     }
 
@@ -505,7 +518,8 @@ export default function Calendar() {
       selectedDateList.map((workDate) => ({
         user_id: targetUserId,
         work_date: workDate,
-        workplace_id: payload.workplaceId,
+        workplace_id: payload.workplaceIds[0],
+        workplace_ids: payload.workplaceIds,
         note: payload.note.trim() || null,
         overtime_enabled: payload.overtimeEnabled,
         overtime_hours: payload.overtimeEnabled ? payload.overtimeHours : 0,
