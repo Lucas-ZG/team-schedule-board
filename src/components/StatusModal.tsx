@@ -361,6 +361,30 @@ export default function StatusModal({
               )}
             </fieldset>
 
+            {hasDayoffSelected ? (
+              <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50/60 px-3 py-3">
+                <label className="block">
+                  <span className="text-sm font-medium text-emerald-800">
+                    Leave Hours
+                  </span>
+                  <select
+                    className="mt-2 w-full rounded-md border border-emerald-300 bg-white px-3 py-2 text-slate-950 shadow-sm disabled:bg-slate-100 disabled:text-slate-500"
+                    value={leaveHours}
+                    onChange={(event) =>
+                      setLeaveHours(Number(event.target.value))
+                    }
+                    disabled={!canEdit}
+                  >
+                    {LEAVE_HOUR_OPTIONS.map((hours) => (
+                      <option key={hours} value={hours}>
+                        {hours.toFixed(1)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            ) : null}
+
             <label className="mt-4 block">
               <span className="text-sm font-medium text-slate-700">Note</span>
               <textarea
@@ -406,30 +430,6 @@ export default function StatusModal({
                 </label>
               ) : null}
             </div>
-
-            {hasDayoffSelected ? (
-              <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50/60 px-3 py-3">
-                <label className="block">
-                  <span className="text-sm font-medium text-emerald-800">
-                    Leave Hours
-                  </span>
-                  <select
-                    className="mt-2 w-full rounded-md border border-emerald-300 bg-white px-3 py-2 text-slate-950 shadow-sm disabled:bg-slate-100 disabled:text-slate-500"
-                    value={leaveHours}
-                    onChange={(event) =>
-                      setLeaveHours(Number(event.target.value))
-                    }
-                    disabled={!canEdit}
-                  >
-                    {LEAVE_HOUR_OPTIONS.map((hours) => (
-                      <option key={hours} value={hours}>
-                        {hours.toFixed(1)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            ) : null}
 
             {error ? (
               <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
