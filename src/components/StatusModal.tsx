@@ -20,12 +20,15 @@ type StatusModalProps = {
     note: string;
     overtimeEnabled: boolean;
     overtimeHours: number;
+    leaveHours: number;
   }) => Promise<void>;
   onDelete: (userId: string) => Promise<void>;
 };
 
 const OVERTIME_HOUR_OPTIONS = Array.from({ length: 48 }, (_, index) => (index + 1) * 0.5);
 const DEFAULT_OVERTIME_HOURS = 1;
+const LEAVE_HOUR_OPTIONS = Array.from({ length: 16 }, (_, index) => (index + 1) * 0.5);
+const DEFAULT_LEAVE_HOURS = 8;
 
 function memberLabel(profile?: Profile) {
   return profile?.display_name || profile?.email || "Unknown member";
@@ -114,10 +117,16 @@ export default function StatusModal({
   const [note, setNote] = useState("");
   const [overtimeEnabled, setOvertimeEnabled] = useState(false);
   const [overtimeHours, setOvertimeHours] = useState<number>(DEFAULT_OVERTIME_HOURS);
+  const [leaveHours, setLeaveHours] = useState<number>(DEFAULT_LEAVE_HOURS);
 
   const workplaceById = useMemo(
     () => new Map(workplaces.map((entry) => [entry.id, entry])),
     [workplaces],
+  );
+
+  const hasDayoffSelected = useMemo(
+    () => workplaceIds.some((id) => workplaceById.get(id)?.is_dayoff),
+    [workplaceIds, workplaceById],
   );
 
   useEffect(() => {
@@ -152,6 +161,11 @@ export default function StatusModal({
       targetStatus?.overtime_enabled && Number(targetStatus?.overtime_hours) > 0
         ? Number(targetStatus.overtime_hours)
         : DEFAULT_OVERTIME_HOURS,
+    );
+    setLeaveHours(
+      Number(targetStatus?.leave_hours) > 0
+        ? Number(targetStatus?.leave_hours)
+        : DEFAULT_LEAVE_HOURS,
     );
   }, [targetStatus, workplaces]);
 
@@ -191,6 +205,7 @@ export default function StatusModal({
       note,
       overtimeEnabled,
       overtimeHours: overtimeEnabled ? overtimeHours : 0,
+      leaveHours: hasDayoffSelected ? leaveHours : 0,
     });
   }
 
@@ -391,6 +406,30 @@ export default function StatusModal({
                 </label>
               ) : null}
             </div>
+
+            {hasDayoffSelected ? (
+              <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50/60 px-3 py-3">
+                <label className="block">
+                  <span className="text-sm font-medium text-emerald-800">
+                    Leave Hours
+                  </span>
+                  <select
+                    className="mt-2 w-full rounded-md border border-emerald-300 bg-white px-3 py-2 text-slate-950 shadow-sm disabled:bg-slate-100 disabled:text-slate-500"
+                    value={leaveHours}
+                    onChange={(event) =>
+                      setLeaveHours(Number(event.target.value))
+                    }
+                    disabled={!canEdit}
+                  >
+                    {LEAVE_HOUR_OPTIONS.map((hours) => (
+                      <option key={hours} value={hours}>
+                        {hours.toFixed(1)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            ) : null}
 
             {error ? (
               <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">

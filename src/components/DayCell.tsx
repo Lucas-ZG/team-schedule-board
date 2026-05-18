@@ -150,6 +150,12 @@ export default function DayCell({
           sortedStatuses.map((status) => {
             const overtimeHours = Number(status.overtime_hours) || 0;
             const showOvertime = status.overtime_enabled && overtimeHours > 0;
+            const leaveHours = Number(status.leave_hours) || 0;
+            const showLeave = leaveHours > 0;
+            const leaveLabel =
+              leaveHours === 8
+                ? "Leave: 1d"
+                : `Leave: ${leaveHours % 1 === 0 ? leaveHours.toFixed(0) : leaveHours.toString()}h`;
             return (
               <button
                 type="button"
@@ -171,10 +177,26 @@ export default function DayCell({
                     {getWorkplaceLabel(status)}
                   </span>
                 </div>
-                {showOvertime ? (
-                  <span className="mt-0.5 inline-block rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold leading-4 text-amber-700">
-                    OT: {overtimeHours.toFixed(1)}h
-                  </span>
+                {showOvertime || showLeave ? (
+                  <div className="mt-0.5 flex flex-wrap gap-1">
+                    {showOvertime ? (
+                      <span className="inline-block rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold leading-4 text-amber-700">
+                        OT: {overtimeHours.toFixed(1)}h
+                      </span>
+                    ) : null}
+                    {showLeave ? (
+                      <span
+                        className="inline-block rounded border px-1.5 py-0.5 text-[10px] font-semibold leading-4"
+                        style={{
+                          backgroundColor: "#dcfce7",
+                          borderColor: "#16a34a",
+                          color: "#15803d",
+                        }}
+                      >
+                        {leaveLabel}
+                      </span>
+                    ) : null}
+                  </div>
                 ) : null}
               </button>
             );

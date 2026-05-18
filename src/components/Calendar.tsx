@@ -86,6 +86,26 @@ function resolvePeriodRange(
   };
 }
 
+function formatLeaveTotal(hours: number) {
+  const totalHalves = Math.round(hours * 2);
+  const days = Math.floor(totalHalves / 16);
+  const remainderHalves = totalHalves - days * 16;
+  const remainderHours = remainderHalves / 2;
+  if (remainderHalves === 0) {
+    return `${days} day${days === 1 ? "" : "s"}`;
+  }
+  if (days === 0) {
+    return remainderHours % 1 === 0
+      ? `${remainderHours.toFixed(0)}h`
+      : `${remainderHours}h`;
+  }
+  const remainderText =
+    remainderHours % 1 === 0
+      ? `${remainderHours.toFixed(0)}h`
+      : `${remainderHours}h`;
+  return `${days}d ${remainderText}`;
+}
+
 function sortWorkplaces(workplaces: Workplace[]) {
   return [...workplaces].sort((left, right) => {
     const leftIndex = WORKPLACE_ORDER.indexOf(left.name);
@@ -191,6 +211,40 @@ export default function Calendar() {
         return left.label.localeCompare(right.label);
       });
   }, [otPeriodStatuses, profiles, otSummaryRange]);
+
+  const leaveSummary = useMemo(() => {
+    if (!firstMonthDate || !lastMonthDate) {
+      return [];
+    }
+    const totals = new Map<string, number>();
+    statuses.forEach((status) => {
+      const hours = Number(status.leave_hours) || 0;
+      if (hours <= 0) {
+        return;
+      }
+      if (
+        status.work_date < firstMonthDate ||
+        status.work_date > lastMonthDate
+      ) {
+        return;
+      }
+      totals.set(status.user_id, (totals.get(status.user_id) || 0) + hours);
+    });
+
+    return Array.from(totals.entries())
+      .map(([userId, hours]) => {
+        const profile = profiles.find((entry) => entry.id === userId);
+        const label =
+          profile?.display_name || profile?.email || "Unknown member";
+        return { userId, label, hours };
+      })
+      .sort((left, right) => {
+        if (right.hours !== left.hours) {
+          return right.hours - left.hours;
+        }
+        return left.label.localeCompare(right.label);
+      });
+  }, [statuses, profiles, firstMonthDate, lastMonthDate]);
 
   const userProfile = useMemo(
     () => profiles.find((profile) => profile.id === user?.id) || null,
@@ -418,6 +472,7 @@ export default function Calendar() {
     note: string;
     overtimeEnabled: boolean;
     overtimeHours: number;
+    leaveHours: number;
   }) {
     if (!user || !selectedDay || payload.workplaceIds.length === 0) {
       return;
@@ -440,6 +495,7 @@ export default function Calendar() {
       note: payload.note.trim() || null,
       overtime_enabled: payload.overtimeEnabled,
       overtime_hours: payload.overtimeEnabled ? payload.overtimeHours : 0,
+      leave_hours: payload.leaveHours,
     };
 
     const result = targetStatus
@@ -508,6 +564,7 @@ export default function Calendar() {
     note: string;
     overtimeEnabled: boolean;
     overtimeHours: number;
+    leaveHours: number;
   }) {
     if (!user || selectedDateList.length === 0 || payload.workplaceIds.length === 0) {
       return;
@@ -527,6 +584,7 @@ export default function Calendar() {
         note: payload.note.trim() || null,
         overtime_enabled: payload.overtimeEnabled,
         overtime_hours: payload.overtimeEnabled ? payload.overtimeHours : 0,
+        leave_hours: payload.leaveHours,
       })),
       { onConflict: "user_id,work_date" },
     );
@@ -692,6 +750,35 @@ export default function Calendar() {
             </ul>
           )}
         </section>
+
+        {isAdmin ? (
+          <section className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50/60 px-4 py-3 shadow-soft">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-emerald-900">
+                  Monthly Leave Summary
+                </h3>
+                <p className="mt-0.5 text-xs font-medium text-emerald-700">
+                  {getMonthTitle(currentMonth)}
+                </p>
+              </div>
+            </div>
+            {leaveSummary.length === 0 ? (
+              <p className="mt-2 text-xs text-emerald-800/80">
+                No leave recorded this month.
+              </p>
+            ) : (
+              <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-emerald-900">
+                {leaveSummary.map((entry) => (
+                  <li key={entry.userId} className="font-medium">
+                    <span>{entry.label}</span>
+                    <span className="text-emerald-700"> : {formatLeaveTotal(entry.hours)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        ) : null}
 
         <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-soft">
           <div className="hidden grid-cols-7 border-b border-slate-200 bg-slate-50 md:grid">
