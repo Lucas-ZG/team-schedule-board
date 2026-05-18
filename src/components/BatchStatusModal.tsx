@@ -91,22 +91,11 @@ export default function BatchStatusModal({
   }, [workplaces]);
 
   function toggleWorkplace(id: string) {
-    const target = workplaceById.get(id);
-    const isDayoff = Boolean(target?.is_dayoff);
-    setWorkplaceIds((current) => {
-      const has = current.includes(id);
-      if (has) {
-        return current.filter((entry) => entry !== id);
-      }
-      if (isDayoff) {
-        return [id];
-      }
-      const filtered = current.filter((entry) => {
-        const workplace = workplaceById.get(entry);
-        return workplace ? !workplace.is_dayoff : true;
-      });
-      return [...filtered, id];
-    });
+    setWorkplaceIds((current) =>
+      current.includes(id)
+        ? current.filter((entry) => entry !== id)
+        : [...current, id],
+    );
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -175,7 +164,7 @@ export default function BatchStatusModal({
               Workplace
             </legend>
             <p className="mt-1 text-xs text-slate-500">
-              Select one or more. Dayoff is exclusive.
+              Select one or more.
             </p>
             {workplaces.length === 0 ? (
               <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
