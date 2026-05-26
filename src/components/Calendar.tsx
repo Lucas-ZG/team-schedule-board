@@ -126,11 +126,15 @@ function computeOtSummary(
     .map(([userId, hours]) => {
       const profile = profiles.find((entry) => entry.id === userId);
       const label = profile?.display_name || profile?.email || "Unknown member";
-      return { userId, label, hours };
+      const sortOrder =
+        typeof profile?.sort_order === "number"
+          ? profile.sort_order
+          : Number.MAX_SAFE_INTEGER;
+      return { userId, label, hours, sortOrder };
     })
     .sort((left, right) => {
-      if (right.hours !== left.hours) {
-        return right.hours - left.hours;
+      if (left.sortOrder !== right.sortOrder) {
+        return left.sortOrder - right.sortOrder;
       }
       return left.label.localeCompare(right.label);
     });
