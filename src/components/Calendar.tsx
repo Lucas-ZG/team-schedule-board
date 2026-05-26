@@ -86,6 +86,56 @@ function resolvePeriodRange(
   };
 }
 
+function shiftBackOneMonth(iso: string) {
+  const [year, month, day] = iso.split("-").map(Number);
+  if (!year || !month || !day) {
+    return iso;
+  }
+  let targetYear = year;
+  let targetMonth = month - 1; // 1-based
+  if (targetMonth < 1) {
+    targetMonth = 12;
+    targetYear -= 1;
+  }
+  const daysInTargetMonth = new Date(targetYear, targetMonth, 0).getDate();
+  const targetDay = Math.min(day, daysInTargetMonth);
+  return `${targetYear}-${pad2(targetMonth)}-${pad2(targetDay)}`;
+}
+
+function computeOtSummary(
+  statuses: DailyStatus[],
+  range: { start: string; end: string },
+  profiles: Profile[],
+) {
+  const totals = new Map<string, number>();
+  statuses.forEach((status) => {
+    if (!status.overtime_enabled) {
+      return;
+    }
+    const hours = Number(status.overtime_hours) || 0;
+    if (hours <= 0) {
+      return;
+    }
+    if (status.work_date < range.start || status.work_date > range.end) {
+      return;
+    }
+    totals.set(status.user_id, (totals.get(status.user_id) || 0) + hours);
+  });
+
+  return Array.from(totals.entries())
+    .map(([userId, hours]) => {
+      const profile = profiles.find((entry) => entry.id === userId);
+      const label = profile?.display_name || profile?.email || "Unknown member";
+      return { userId, label, hours };
+    })
+    .sort((left, right) => {
+      if (right.hours !== left.hours) {
+        return right.hours - left.hours;
+      }
+      return left.label.localeCompare(right.label);
+    });
+}
+
 function formatLeaveTotal(hours: number) {
   const totalHalves = Math.round(hours * 2);
   const days = Math.floor(totalHalves / 16);
@@ -178,39 +228,23 @@ export default function Calendar() {
     [otPeriod, currentMonth],
   );
 
-  const otSummary = useMemo(() => {
-    const totals = new Map<string, number>();
-    otPeriodStatuses.forEach((status) => {
-      if (!status.overtime_enabled) {
-        return;
-      }
-      const hours = Number(status.overtime_hours) || 0;
-      if (hours <= 0) {
-        return;
-      }
-      if (
-        status.work_date < otSummaryRange.start ||
-        status.work_date > otSummaryRange.end
-      ) {
-        return;
-      }
-      totals.set(status.user_id, (totals.get(status.user_id) || 0) + hours);
-    });
+  const prevPeriodRange = useMemo(
+    () => ({
+      start: shiftBackOneMonth(otSummaryRange.start),
+      end: shiftBackOneMonth(otSummaryRange.end),
+    }),
+    [otSummaryRange.start, otSummaryRange.end],
+  );
 
-    return Array.from(totals.entries())
-      .map(([userId, hours]) => {
-        const profile = profiles.find((entry) => entry.id === userId);
-        const label =
-          profile?.display_name || profile?.email || "Unknown member";
-        return { userId, label, hours };
-      })
-      .sort((left, right) => {
-        if (right.hours !== left.hours) {
-          return right.hours - left.hours;
-        }
-        return left.label.localeCompare(right.label);
-      });
-  }, [otPeriodStatuses, profiles, otSummaryRange]);
+  const otSummary = useMemo(
+    () => computeOtSummary(otPeriodStatuses, otSummaryRange, profiles),
+    [otPeriodStatuses, otSummaryRange, profiles],
+  );
+
+  const prevOtSummary = useMemo(
+    () => computeOtSummary(otPeriodStatuses, prevPeriodRange, profiles),
+    [otPeriodStatuses, prevPeriodRange, profiles],
+  );
 
   const leaveSummary = useMemo(() => {
     if (!firstMonthDate || !lastMonthDate) {
@@ -440,7 +474,7 @@ export default function Calendar() {
     supabase
       .from("daily_status")
       .select("*")
-      .gte("work_date", otSummaryRange.start)
+      .gte("work_date", prevPeriodRange.start)
       .lte("work_date", otSummaryRange.end)
       .eq("overtime_enabled", true)
       .then(({ data, error: rangeError }) => {
@@ -452,7 +486,12 @@ export default function Calendar() {
     return () => {
       cancelled = true;
     };
-  }, [user, otSummaryRange.start, otSummaryRange.end, statuses]);
+  }, [
+    user,
+    prevPeriodRange.start,
+    otSummaryRange.end,
+    statuses,
+  ]);
 
   useEffect(() => {
     setSelectedDates(new Set());
@@ -714,17 +753,9 @@ export default function Calendar() {
 
         <section className="mb-4 rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-3 shadow-soft">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold text-amber-900">
-                Monthly OT Summary
-              </h3>
-              <p className="mt-0.5 text-xs font-medium text-amber-700">
-                {formatPeriodLabel(otSummaryRange.start, otSummaryRange.end)}
-                {otPeriod?.auto_calculate && otPeriod.auto_start_day
-                  ? ` · auto (day ${otPeriod.auto_start_day})`
-                  : ""}
-              </p>
-            </div>
+            <h3 className="text-sm font-semibold text-amber-900">
+              Monthly OT Summary
+            </h3>
             {isAdmin ? (
               <button
                 type="button"
@@ -735,20 +766,49 @@ export default function Calendar() {
               </button>
             ) : null}
           </div>
-          {otSummary.length === 0 ? (
-            <p className="mt-2 text-xs text-amber-800/80">
-              No overtime recorded this period.
-            </p>
-          ) : (
-            <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-amber-900">
-              {otSummary.map((entry) => (
-                <li key={entry.userId} className="font-medium">
-                  <span>{entry.label}</span>
-                  <span className="text-amber-700"> : {entry.hours.toFixed(1)}h</span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <p className="text-xs font-semibold text-amber-700">
+                {formatPeriodLabel(prevPeriodRange.start, prevPeriodRange.end)}
+              </p>
+              {prevOtSummary.length === 0 ? (
+                <p className="mt-1 text-xs text-amber-800/80">
+                  No overtime recorded.
+                </p>
+              ) : (
+                <ul className="mt-1 space-y-0.5 text-sm text-amber-900">
+                  {prevOtSummary.map((entry) => (
+                    <li key={entry.userId} className="font-medium">
+                      <span>{entry.label}</span>
+                      <span className="text-amber-700"> : {entry.hours.toFixed(1)}h</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-amber-700">
+                {formatPeriodLabel(otSummaryRange.start, otSummaryRange.end)}
+                {otPeriod?.auto_calculate && otPeriod.auto_start_day
+                  ? ` · auto (day ${otPeriod.auto_start_day})`
+                  : ""}
+              </p>
+              {otSummary.length === 0 ? (
+                <p className="mt-1 text-xs text-amber-800/80">
+                  No overtime recorded.
+                </p>
+              ) : (
+                <ul className="mt-1 space-y-0.5 text-sm text-amber-900">
+                  {otSummary.map((entry) => (
+                    <li key={entry.userId} className="font-medium">
+                      <span>{entry.label}</span>
+                      <span className="text-amber-700"> : {entry.hours.toFixed(1)}h</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
         </section>
 
         {isAdmin ? (
