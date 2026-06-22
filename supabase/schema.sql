@@ -4,7 +4,7 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   display_name text,
   email text,
-  role text not null default 'user' check (role in ('admin', 'user')),
+  role text not null default 'user' check (role in ('admin', 'user', 'viewer')),
   created_at timestamptz not null default now()
 );
 
@@ -87,16 +87,15 @@ select
     split_part(users.email, '@', 1)
   ),
   users.email,
-  case when lower(users.email) = 'lucas@test.com' then 'admin' else 'user' end
+  'user'
 from auth.users
 on conflict (id) do update
 set
   email = excluded.email,
   display_name = coalesce(public.profiles.display_name, excluded.display_name),
-  role = case
-    when lower(excluded.email) = 'lucas@test.com' then 'admin'
-    else coalesce(public.profiles.role, 'user')
-  end;
+  role = coalesce(public.profiles.role, 'user');
+-- To grant admin, run:
+--   UPDATE public.profiles SET role = 'admin' WHERE email = 'admin@example.com';
 
 alter table public.profiles enable row level security;
 alter table public.workplaces enable row level security;

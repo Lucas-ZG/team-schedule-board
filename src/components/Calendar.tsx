@@ -291,11 +291,18 @@ export default function Calendar() {
     [profiles, user?.id],
   );
   const isAdmin = userProfile?.role === "admin";
+  const isViewer = userProfile?.role === "viewer";
+  // canEdit is false while profile is still loading (userProfile null) and for viewers
+  const canEdit =
+    userProfile?.role === "admin" || userProfile?.role === "user";
   const userLabel =
     userProfile?.display_name || userProfile?.email || user?.email || "";
 
   function handleSelectDay(day: CalendarDay, status?: CalendarStatus) {
     if (!day.isCurrentMonth) {
+      return;
+    }
+    if (isViewer) {
       return;
     }
 
@@ -519,7 +526,7 @@ export default function Calendar() {
     overtimeHours: number;
     leaveHours: number;
   }) {
-    if (!user || !selectedDay || payload.workplaceIds.length === 0) {
+    if (!user || !selectedDay || !canEdit || payload.workplaceIds.length === 0) {
       return;
     }
 
@@ -567,7 +574,7 @@ export default function Calendar() {
   }
 
   async function handleDelete(targetUserId: string) {
-    if (!user || !selectedDay) {
+    if (!user || !selectedDay || !canEdit) {
       return;
     }
 
@@ -611,7 +618,7 @@ export default function Calendar() {
     overtimeHours: number;
     leaveHours: number;
   }) {
-    if (!user || selectedDateList.length === 0 || payload.workplaceIds.length === 0) {
+    if (!user || selectedDateList.length === 0 || !canEdit || payload.workplaceIds.length === 0) {
       return;
     }
 
@@ -678,7 +685,9 @@ export default function Calendar() {
               {getMonthTitle(currentMonth)}
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Click a date to manage your own workplace or day off status.
+              {isViewer
+                ? "Read-only view."
+                : "Click a date to manage your own workplace or day off status."}
             </p>
           </div>
 
@@ -701,22 +710,24 @@ export default function Calendar() {
                 匯出 OT
               </button>
             ) : null}
-            <button
-              type="button"
-              onClick={() => {
-                setIsMultiSelectMode((value) => !value);
-                setSelectedDates(new Set());
-                setBatchError(null);
-              }}
-              className={[
-                "rounded-md border px-3 py-2 text-sm font-semibold transition",
-                isMultiSelectMode
-                  ? "border-blue-600 bg-blue-600 text-white hover:bg-blue-700"
-                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
-              ].join(" ")}
-            >
-              {isMultiSelectMode ? "Exit multi-select" : "Multi-select"}
-            </button>
+            {canEdit ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMultiSelectMode((value) => !value);
+                  setSelectedDates(new Set());
+                  setBatchError(null);
+                }}
+                className={[
+                  "rounded-md border px-3 py-2 text-sm font-semibold transition",
+                  isMultiSelectMode
+                    ? "border-blue-600 bg-blue-600 text-white hover:bg-blue-700"
+                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
+                ].join(" ")}
+              >
+                {isMultiSelectMode ? "Exit multi-select" : "Multi-select"}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => setCurrentMonth((value) => addMonths(value, -1))}
@@ -885,13 +896,14 @@ export default function Calendar() {
                 isMultiSelectMode={isMultiSelectMode}
                 isSelected={selectedDates.has(day.isoDate)}
                 onSelect={handleSelectDay}
+                readOnly={isViewer}
               />
             ))}
           </div>
         </section>
       </main>
 
-      {selectedDay && user ? (
+      {selectedDay && user && canEdit ? (
         <StatusModal
           selectedDate={selectedDay.isoDate}
           currentUserId={user.id}
@@ -937,7 +949,7 @@ export default function Calendar() {
         />
       ) : null}
 
-      {isBatchModalOpen && user ? (
+      {isBatchModalOpen && user && canEdit ? (
         <BatchStatusModal
           selectedDateCount={selectedDateList.length}
           currentUserId={user.id}

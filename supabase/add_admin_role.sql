@@ -14,7 +14,7 @@ begin
   ) then
     alter table public.profiles
     add constraint profiles_role_check
-    check (role in ('admin', 'user'));
+    check (role in ('admin', 'user', 'viewer'));
   end if;
 end $$;
 
@@ -33,16 +33,13 @@ begin
       split_part(new.email, '@', 1)
     ),
     new.email,
-    case when lower(new.email) = 'lucas@test.com' then 'admin' else 'user' end
+    'user'  -- new users start as 'user'; grant admin via profiles.role = 'admin'
   )
   on conflict (id) do update
   set
     email = excluded.email,
     display_name = coalesce(public.profiles.display_name, excluded.display_name),
-    role = case
-      when lower(excluded.email) = 'lucas@test.com' then 'admin'
-      else coalesce(public.profiles.role, 'user')
-    end;
+    role = coalesce(public.profiles.role, 'user');
 
   return new;
 end;
@@ -56,24 +53,18 @@ select
     split_part(users.email, '@', 1)
   ),
   users.email,
-  case when lower(users.email) = 'lucas@test.com' then 'admin' else 'user' end
+  'user'
 from auth.users
 on conflict (id) do update
 set
   email = excluded.email,
   display_name = coalesce(public.profiles.display_name, excluded.display_name),
-  role = case
-    when lower(excluded.email) = 'lucas@test.com' then 'admin'
-    else coalesce(public.profiles.role, 'user')
-  end;
-
-update public.profiles
-set role = 'admin'
-where lower(email) = 'lucas@test.com';
+  role = coalesce(public.profiles.role, 'user');
 
 update public.profiles
 set role = 'user'
 where role is null;
+-- To grant admin: UPDATE public.profiles SET role = 'admin' WHERE email = 'admin@example.com';
 
 alter table public.profiles enable row level security;
 alter table public.workplaces enable row level security;

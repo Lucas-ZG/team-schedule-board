@@ -10,6 +10,7 @@ type DayCellProps = {
   isMultiSelectMode: boolean;
   isSelected: boolean;
   onSelect: (day: CalendarDay, status?: CalendarStatus) => void;
+  readOnly?: boolean;
 };
 
 function getDisplayName(status: CalendarStatus) {
@@ -69,6 +70,7 @@ export default function DayCell({
   isMultiSelectMode,
   isSelected,
   onSelect,
+  readOnly = false,
 }: DayCellProps) {
   const sortedStatuses = useMemo(() => {
     const orderOf = (status: CalendarStatus) => {
@@ -103,6 +105,118 @@ export default function DayCell({
         ? "text-blue-600"
         : "text-slate-700";
 
+  const dateHeader = (
+    <div className="mb-3 flex items-center justify-between">
+      <div className="flex min-w-0 items-center gap-2">
+        <span
+          className={[
+            "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-semibold",
+            day.isToday ? "bg-blue-600 text-white" : dateTextClass,
+          ].join(" ")}
+        >
+          {day.dayNumber}
+        </span>
+        {day.koreanHolidayName ? (
+          <span className="truncate text-xs font-semibold text-red-600">
+            {day.koreanHolidayName}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  const statusItems =
+    sortedStatuses.length === 0 ? (
+      <p className="text-xs text-slate-400">No status</p>
+    ) : (
+      sortedStatuses.map((status) => {
+        const overtimeHours = Number(status.overtime_hours) || 0;
+        const showOvertime = status.overtime_enabled && overtimeHours > 0;
+        const leaveHours = Number(status.leave_hours) || 0;
+        const showLeave = leaveHours > 0;
+        const leaveLabel =
+          leaveHours === 8
+            ? "Leave: 1d"
+            : `Leave: ${leaveHours % 1 === 0 ? leaveHours.toFixed(0) : leaveHours.toString()}h`;
+
+        const inner = (
+          <>
+            <div className="flex items-center gap-1.5">
+              <span className="min-w-0 flex-1 truncate font-medium text-slate-700">
+                {getDisplayName(status)}
+              </span>
+              <span
+                className="max-w-[120px] truncate rounded border px-1.5 py-0.5 font-semibold"
+                style={getBadgeStyle(status)}
+              >
+                {getWorkplaceLabel(status)}
+              </span>
+            </div>
+            {showOvertime || showLeave ? (
+              <div className="mt-0.5 flex flex-wrap gap-1">
+                {showOvertime ? (
+                  <span className="inline-block rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold leading-4 text-amber-700">
+                    OT: {overtimeHours.toFixed(1)}h
+                  </span>
+                ) : null}
+                {showLeave ? (
+                  <span
+                    className="inline-block rounded border px-1.5 py-0.5 text-[10px] font-semibold leading-4"
+                    style={{
+                      backgroundColor: "#dcfce7",
+                      borderColor: "#16a34a",
+                      color: "#15803d",
+                    }}
+                  >
+                    {leaveLabel}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+          </>
+        );
+
+        if (readOnly) {
+          return (
+            <div key={status.id} className="block w-full text-left text-xs leading-5">
+              {inner}
+            </div>
+          );
+        }
+
+        return (
+          <button
+            type="button"
+            key={status.id}
+            onClick={(event) => {
+              event.stopPropagation();
+              onSelect(day, status);
+            }}
+            className="block w-full text-left text-xs leading-5"
+          >
+            {inner}
+          </button>
+        );
+      })
+    );
+
+  if (readOnly) {
+    return (
+      <div
+        className={[
+          "block w-full",
+          "min-h-[132px] rounded-none border bg-white p-3 text-left",
+          "md:min-h-[150px]",
+          "border-slate-200",
+          day.isToday ? "ring-2 ring-inset ring-blue-500" : "",
+        ].join(" ")}
+      >
+        {dateHeader}
+        <div className="space-y-1.5">{statusItems}</div>
+      </div>
+    );
+  }
+
   return (
     <div
       role="button"
@@ -125,84 +239,8 @@ export default function DayCell({
         day.isToday ? "ring-2 ring-inset ring-blue-500" : "",
       ].join(" ")}
     >
-      <div className="mb-3 flex items-center justify-between">
-        <div className="flex min-w-0 items-center gap-2">
-          <span
-            className={[
-              "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-semibold",
-              day.isToday ? "bg-blue-600 text-white" : dateTextClass,
-            ].join(" ")}
-          >
-            {day.dayNumber}
-          </span>
-          {day.koreanHolidayName ? (
-            <span className="truncate text-xs font-semibold text-red-600">
-              {day.koreanHolidayName}
-            </span>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="space-y-1.5">
-        {sortedStatuses.length === 0 ? (
-          <p className="text-xs text-slate-400">No status</p>
-        ) : (
-          sortedStatuses.map((status) => {
-            const overtimeHours = Number(status.overtime_hours) || 0;
-            const showOvertime = status.overtime_enabled && overtimeHours > 0;
-            const leaveHours = Number(status.leave_hours) || 0;
-            const showLeave = leaveHours > 0;
-            const leaveLabel =
-              leaveHours === 8
-                ? "Leave: 1d"
-                : `Leave: ${leaveHours % 1 === 0 ? leaveHours.toFixed(0) : leaveHours.toString()}h`;
-            return (
-              <button
-                type="button"
-                key={status.id}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onSelect(day, status);
-                }}
-                className="block w-full text-left text-xs leading-5"
-              >
-                <div className="flex items-center gap-1.5">
-                  <span className="min-w-0 flex-1 truncate font-medium text-slate-700">
-                    {getDisplayName(status)}
-                  </span>
-                  <span
-                    className="max-w-[120px] truncate rounded border px-1.5 py-0.5 font-semibold"
-                    style={getBadgeStyle(status)}
-                  >
-                    {getWorkplaceLabel(status)}
-                  </span>
-                </div>
-                {showOvertime || showLeave ? (
-                  <div className="mt-0.5 flex flex-wrap gap-1">
-                    {showOvertime ? (
-                      <span className="inline-block rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold leading-4 text-amber-700">
-                        OT: {overtimeHours.toFixed(1)}h
-                      </span>
-                    ) : null}
-                    {showLeave ? (
-                      <span
-                        className="inline-block rounded border px-1.5 py-0.5 text-[10px] font-semibold leading-4"
-                        style={{
-                          backgroundColor: "#dcfce7",
-                          borderColor: "#16a34a",
-                          color: "#15803d",
-                        }}
-                      >
-                        {leaveLabel}
-                      </span>
-                    ) : null}
-                  </div>
-                ) : null}
-              </button>
-            );
-          })
-        )}
-      </div>
+      {dateHeader}
+      <div className="space-y-1.5">{statusItems}</div>
     </div>
   );
 }

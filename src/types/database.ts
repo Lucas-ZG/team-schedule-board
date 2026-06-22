@@ -14,7 +14,7 @@ export type Database = {
           id: string;
           display_name: string | null;
           email: string | null;
-          role: "admin" | "user";
+          role: "admin" | "user" | "viewer";
           sort_order: number;
           created_at: string;
         };
@@ -22,7 +22,7 @@ export type Database = {
           id: string;
           display_name?: string | null;
           email?: string | null;
-          role?: "admin" | "user";
+          role?: "admin" | "user" | "viewer";
           sort_order?: number;
           created_at?: string;
         };
@@ -30,7 +30,7 @@ export type Database = {
           id?: string;
           display_name?: string | null;
           email?: string | null;
-          role?: "admin" | "user";
+          role?: "admin" | "user" | "viewer";
           sort_order?: number;
           created_at?: string;
         };
