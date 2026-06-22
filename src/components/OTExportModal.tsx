@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import * as XLSX from "xlsx-js-style";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 import type { DailyStatus, Profile } from "@/types/database";
@@ -16,10 +16,6 @@ type OTExportModalProps = {
 };
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-function pad2(value: number) {
-  return value.toString().padStart(2, "0");
-}
 
 function fileTag(isoDate: string) {
   return isoDate.replace(/-/g, "");
@@ -64,6 +60,23 @@ function sortedProfiles(profiles: Profile[]) {
   });
 }
 
+function computeUserTotal(
+  statuses: DailyStatus[],
+  range: Range,
+  userId: string,
+): number {
+  let total = 0;
+  statuses.forEach((s) => {
+    if (s.user_id !== userId) return;
+    if (!s.overtime_enabled) return;
+    const hours = Number(s.overtime_hours) || 0;
+    if (hours <= 0) return;
+    if (s.work_date < range.start || s.work_date > range.end) return;
+    total += hours;
+  });
+  return total;
+}
+
 function buildOTSheet(
   statuses: DailyStatus[],
   range: Range,
@@ -97,13 +110,13 @@ function buildOTSheet(
     byDate.set(s.work_date, (byDate.get(s.work_date) || 0) + hours);
   });
 
-  // For each member, build list of (date, hours) entries sorted by date
   type MemberData = {
     profile: Profile;
     entries: { date: string; hours: number }[];
     total: number;
   };
-  const memberDataList: MemberData[] = members.map((profile) => {
+
+  const allMemberData: MemberData[] = members.map((profile) => {
     const byDate = byUser.get(profile.id) || new Map<string, number>();
     const entries = Array.from(byDate.entries())
       .sort(([a], [b]) => a.localeCompare(b))
@@ -112,11 +125,17 @@ function buildOTSheet(
     return { profile, entries, total };
   });
 
-  // Calculate max rows needed (max OT entries across all members)
+  // Only include members with total > 0
+  const memberDataList = allMemberData.filter((m) => m.total > 0);
+
+  if (memberDataList.length === 0) {
+    const ws: XLSX.WorkSheet = {};
+    ws["!ref"] = "A1:A1";
+    ws["A1"] = { t: "s", v: "No overtime records found." };
+    return ws;
+  }
+
   const maxEntries = Math.max(...memberDataList.map((m) => m.entries.length), 0);
-  // Row 0: member name header
-  // Row 1..maxEntries: OT data rows
-  // Row maxEntries+1: Total row
   const totalDataRows = maxEntries + 1; // +1 for Total row
   const ws: XLSX.WorkSheet = {};
   const merges: XLSX.Range[] = [];
@@ -182,14 +201,14 @@ function buildOTSheet(
     });
   });
 
-  const totalCols = members.length * 2;
+  const totalCols = memberDataList.length * 2;
   const totalRows = totalDataRows + 1; // +1 for header row
   ws["!ref"] = XLSX.utils.encode_range({
     s: { r: 0, c: 0 },
     e: { r: Math.max(totalRows - 1, 0), c: Math.max(totalCols - 1, 0) },
   });
   ws["!merges"] = merges;
-  ws["!cols"] = members.flatMap(() => [{ wch: 12 }, { wch: 10 }]);
+  ws["!cols"] = memberDataList.flatMap(() => [{ wch: 12 }, { wch: 10 }]);
 
   return ws;
 }
@@ -203,6 +222,11 @@ export default function OTExportModal({
 }: OTExportModalProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [includePrev, setIncludePrev] = useState(true);
+  const [includeCurr, setIncludeCurr] = useState(true);
+  const [previewStatuses, setPreviewStatuses] = useState<DailyStatus[] | null>(
+    null,
+  );
 
   const members = sortedProfiles(profiles);
   const prevDisplay = formatRangeDisplay(prevPeriodRange.start, prevPeriodRange.end);
@@ -210,11 +234,61 @@ export default function OTExportModal({
   const prevSheetName = formatSheetName(prevPeriodRange.start, prevPeriodRange.end);
   const currSheetName = formatSheetName(otSummaryRange.start, otSummaryRange.end);
 
+  // Eagerly fetch to preview which members have OT
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    const supabase = getSupabaseClient();
+    supabase
+      .from("daily_status")
+      .select("*")
+      .gte("work_date", prevPeriodRange.start)
+      .lte("work_date", otSummaryRange.end)
+      .eq("overtime_enabled", true)
+      .order("work_date", { ascending: true })
+      .then(({ data, error: fetchError }) => {
+        if (cancelled) return;
+        if (!fetchError && data) {
+          setPreviewStatuses(data as DailyStatus[]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [prevPeriodRange.start, otSummaryRange.end, isAdmin]);
+
+  // Members with OT in at least one checked period (empty array while loading)
+  const previewMembers = previewStatuses
+    ? members.filter((m) => {
+        const prevTotal = includePrev
+          ? computeUserTotal(previewStatuses, prevPeriodRange, m.id)
+          : 0;
+        const currTotal = includeCurr
+          ? computeUserTotal(previewStatuses, otSummaryRange, m.id)
+          : 0;
+        return prevTotal > 0 || currTotal > 0;
+      })
+    : [];
+
+  const canExport = includePrev || includeCurr;
+
+  function buildFilename() {
+    if (includePrev && includeCurr) {
+      return `OT_${fileTag(prevPeriodRange.start)}_${fileTag(otSummaryRange.end)}.xlsx`;
+    }
+    if (includePrev) {
+      return `OT_${fileTag(prevPeriodRange.start)}_${fileTag(prevPeriodRange.end)}.xlsx`;
+    }
+    return `OT_${fileTag(otSummaryRange.start)}_${fileTag(otSummaryRange.end)}.xlsx`;
+  }
+
   async function handleExport() {
     if (!isAdmin) {
       setError("Access denied. Admin privileges required to export OT data.");
       return;
     }
+    if (!canExport) return;
+
     setError(null);
     setBusy(true);
     try {
@@ -230,15 +304,17 @@ export default function OTExportModal({
       if (fetchError) throw fetchError;
       const statuses = (data as DailyStatus[]) || [];
 
-      const prevSheet = buildOTSheet(statuses, prevPeriodRange, members);
-      const currSheet = buildOTSheet(statuses, otSummaryRange, members);
-
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, prevSheet, prevSheetName);
-      XLSX.utils.book_append_sheet(wb, currSheet, currSheetName);
+      if (includePrev) {
+        const prevSheet = buildOTSheet(statuses, prevPeriodRange, members);
+        XLSX.utils.book_append_sheet(wb, prevSheet, prevSheetName);
+      }
+      if (includeCurr) {
+        const currSheet = buildOTSheet(statuses, otSummaryRange, members);
+        XLSX.utils.book_append_sheet(wb, currSheet, currSheetName);
+      }
 
-      const filename = `OT_${fileTag(prevPeriodRange.start)}_${fileTag(otSummaryRange.end)}.xlsx`;
-      XLSX.writeFile(wb, filename);
+      XLSX.writeFile(wb, buildFilename());
 
       setBusy(false);
       onClose();
@@ -262,7 +338,7 @@ export default function OTExportModal({
               Export OT Records
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Download an Excel file with two sheets covering both OT periods.
+              Select periods to include in the Excel export.
             </p>
           </div>
           <button
@@ -278,29 +354,57 @@ export default function OTExportModal({
         <div className="px-5 py-5">
           <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
             <p className="font-medium text-slate-900">Periods to export</p>
-            <ul className="mt-2 space-y-1">
-              <li className="flex items-center gap-2">
-                <span className="inline-block h-2 w-2 rounded-full bg-amber-400" />
-                <span>
-                  Sheet 1 — Previous period:{" "}
+            <ul className="mt-2 space-y-2">
+              <li className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="period-prev"
+                  checked={includePrev}
+                  onChange={(e) => setIncludePrev(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                />
+                <label htmlFor="period-prev" className="cursor-pointer">
+                  <span className="font-medium">Previous period:</span>{" "}
                   <span className="font-semibold">{prevDisplay}</span>
-                </span>
+                </label>
               </li>
-              <li className="flex items-center gap-2">
-                <span className="inline-block h-2 w-2 rounded-full bg-amber-600" />
-                <span>
-                  Sheet 2 — Current period:{" "}
+              <li className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="period-curr"
+                  checked={includeCurr}
+                  onChange={(e) => setIncludeCurr(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                />
+                <label htmlFor="period-curr" className="cursor-pointer">
+                  <span className="font-medium">Current period:</span>{" "}
                   <span className="font-semibold">{currDisplay}</span>
-                </span>
+                </label>
               </li>
             </ul>
+            {!canExport && (
+              <p className="mt-2 text-xs text-red-500">
+                Please select at least one period.
+              </p>
+            )}
           </div>
 
           <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-            <p className="font-medium text-slate-900">Members ({members.length})</p>
-            <p className="mt-1 text-slate-500">
-              {members.map((m) => m.display_name || m.email).join(" · ")}
+            <p className="font-medium text-slate-900">
+              Members with overtime
+              {previewStatuses !== null ? ` (${previewMembers.length})` : ""}
             </p>
+            {previewStatuses === null ? (
+              <p className="mt-1 text-slate-400">Loading...</p>
+            ) : previewMembers.length === 0 ? (
+              <p className="mt-1 text-slate-400">No overtime records found.</p>
+            ) : (
+              <p className="mt-1 text-slate-500">
+                {previewMembers
+                  .map((m) => m.display_name || m.email)
+                  .join(" · ")}
+              </p>
+            )}
           </div>
 
           {error ? (
@@ -321,7 +425,7 @@ export default function OTExportModal({
             <button
               type="button"
               onClick={handleExport}
-              disabled={busy}
+              disabled={busy || !canExport}
               className="rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-amber-300"
             >
               {busy ? "Exporting..." : "匯出 Excel"}
