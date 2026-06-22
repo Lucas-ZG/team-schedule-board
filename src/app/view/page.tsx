@@ -206,15 +206,17 @@ export default function ViewPage() {
     setError(null);
 
     const supabase = getSupabaseClient();
+    // Use public-safe views (no email column) so anonymous visitors cannot
+    // access sensitive fields from the base tables.
     const [profilesResult, workplacesResult, statusesResult] = await Promise.all([
       supabase
-        .from("profiles")
+        .from("v_profiles_public")
         .select("*")
         .order("sort_order", { ascending: true })
         .order("display_name", { ascending: true }),
-      supabase.from("workplaces").select("*").eq("is_active", true),
+      supabase.from("v_workplaces_public").select("*").eq("is_active", true),
       supabase
-        .from("daily_status")
+        .from("v_daily_status_public")
         .select("*")
         .gte("work_date", firstMonthDate)
         .lte("work_date", lastMonthDate)
@@ -227,14 +229,14 @@ export default function ViewPage() {
         profilesResult.error?.message ||
           workplacesResult.error?.message ||
           statusesResult.error?.message ||
-          "Failed to load schedule. Run supabase/add_anon_read.sql so anonymous visitors can read these tables.",
+          "Failed to load schedule. Run supabase/migration_20260616_secure_anon_admin.sql to set up anonymous read access.",
       );
       setLoading(false);
       return;
     }
 
-    const nextProfiles = profilesResult.data || [];
-    const workplaces = workplacesResult.data || [];
+    const nextProfiles = (profilesResult.data as Profile[]) || [];
+    const workplaces = (workplacesResult.data as Workplace[]) || [];
     const profileMap = new Map(nextProfiles.map((p) => [p.id, p]));
     const workplaceMap = new Map(workplaces.map((w) => [w.id, w]));
 

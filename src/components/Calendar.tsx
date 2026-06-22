@@ -6,6 +6,7 @@ import type { User } from "@supabase/supabase-js";
 import BatchStatusModal from "@/components/BatchStatusModal";
 import DayCell from "@/components/DayCell";
 import ExportModal from "@/components/ExportModal";
+import OTExportModal from "@/components/OTExportModal";
 import Header from "@/components/Header";
 import OTPeriodSettings, {
   computeAutoPeriod,
@@ -201,6 +202,7 @@ export default function Calendar() {
   const [otPeriodStatuses, setOtPeriodStatuses] = useState<DailyStatus[]>([]);
   const [isOtSettingsOpen, setIsOtSettingsOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [isOtExportOpen, setIsOtExportOpen] = useState(false);
 
   const monthDays = useMemo(
     () => buildMonthGrid(currentMonth),
@@ -690,6 +692,15 @@ export default function Calendar() {
                 Export
               </button>
             ) : null}
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={() => setIsOtExportOpen(true)}
+                className="rounded-md border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-50"
+              >
+                匯出 OT
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => {
@@ -914,6 +925,16 @@ export default function Calendar() {
 
       {isExportOpen && isAdmin ? (
         <ExportModal onClose={() => setIsExportOpen(false)} />
+      ) : null}
+
+      {isOtExportOpen && isAdmin ? (
+        <OTExportModal
+          otSummaryRange={otSummaryRange}
+          prevPeriodRange={prevPeriodRange}
+          profiles={profiles}
+          isAdmin={isAdmin}
+          onClose={() => setIsOtExportOpen(false)}
+        />
       ) : null}
 
       {isBatchModalOpen && user ? (
