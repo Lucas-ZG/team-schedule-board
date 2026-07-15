@@ -13,16 +13,20 @@ import OTPeriodSettings, {
 } from "@/components/OTPeriodSettings";
 import StatusModal from "@/components/StatusModal";
 import {
+  ADMIN_LOCK_MESSAGE,
   WEEKDAYS,
+  WINDOW_LOCK_MESSAGE,
   addMonths,
   buildMonthGrid,
   getMonthTitle,
+  isWithinSelfEditWindow,
   type CalendarDay,
 } from "@/lib/calendar";
 import {
   getSupabaseClient,
   getSupabaseConfigError,
 } from "@/lib/supabaseClient";
+import { firstOfSeoulMonth, lastOfSeoulMonth } from "@/lib/timezone";
 import type {
   CalendarStatus,
   DailyStatus,
@@ -42,20 +46,6 @@ const WORKPLACE_ORDER = [
 
 function pad2(value: number) {
   return value.toString().padStart(2, "0");
-}
-
-function toIsoDate(date: Date) {
-  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
-}
-
-function firstOfMonth(reference: Date) {
-  return toIsoDate(new Date(reference.getFullYear(), reference.getMonth(), 1));
-}
-
-function lastOfMonth(reference: Date) {
-  return toIsoDate(
-    new Date(reference.getFullYear(), reference.getMonth() + 1, 0),
-  );
 }
 
 function formatPeriodLabel(startIso: string, endIso: string) {
@@ -82,8 +72,8 @@ function resolvePeriodRange(
     }
   }
   return {
-    start: firstOfMonth(fallbackReference),
-    end: lastOfMonth(fallbackReference),
+    start: firstOfSeoulMonth(fallbackReference),
+    end: lastOfSeoulMonth(fallbackReference),
   };
 }
 
@@ -622,11 +612,50 @@ export default function Calendar() {
       return;
     }
 
-    setSaving(true);
     setBatchError(null);
 
     const supabase = getSupabaseClient();
     const targetUserId = isAdmin ? payload.userId : user.id;
+
+    if (!isAdmin) {
+      const lockReasons = selectedDateList
+        .map((workDate) => {
+          const existing = statuses.find(
+            (status) =>
+              status.user_id === targetUserId && status.work_date === workDate,
+          );
+          const enteredByLocked =
+            Boolean(existing?.entered_by) &&
+            existing?.entered_by !== targetUserId;
+          if (enteredByLocked) {
+            return { workDate, message: ADMIN_LOCK_MESSAGE };
+          }
+          if (!isWithinSelfEditWindow(workDate)) {
+            return { workDate, message: WINDOW_LOCK_MESSAGE };
+          }
+          return null;
+        })
+        .filter((entry): entry is { workDate: string; message: string } =>
+          Boolean(entry),
+        );
+
+      if (lockReasons.length > 0) {
+        const datesByMessage = new Map<string, string[]>();
+        lockReasons.forEach(({ workDate, message }) => {
+          const dates = datesByMessage.get(message) || [];
+          dates.push(workDate);
+          datesByMessage.set(message, dates);
+        });
+        const summary = Array.from(datesByMessage.entries())
+          .map(([message, dates]) => `${dates.join(", ")}：${message}`)
+          .join(" / ");
+        setBatchError(summary);
+        return;
+      }
+    }
+
+    setSaving(true);
+
     const { error: upsertError } = await supabase.from("daily_status").upsert(
       selectedDateList.map((workDate) => ({
         user_id: targetUserId,

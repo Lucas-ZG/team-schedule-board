@@ -9,6 +9,9 @@ import {
   y2025,
   y2026,
 } from "@hyunbinseo/holidays-kr";
+import { getKoreanDateParts, toKoreanISODate } from "@/lib/timezone";
+
+export { getKoreanDateParts, toKoreanISODate };
 
 type HolidayMap = Record<string, readonly string[]>;
 
@@ -23,35 +26,6 @@ const holidayMaps: Record<string, HolidayMap> = {
   "2025": y2025,
   "2026": y2026,
 };
-
-const koreanDateFormatter = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Asia/Seoul",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
-
-export function getKoreanDateParts(date: Date) {
-  const parts = koreanDateFormatter.formatToParts(date);
-  const values = Object.fromEntries(
-    parts
-      .filter((part) => part.type !== "literal")
-      .map((part) => [part.type, part.value]),
-  );
-
-  return {
-    year: Number(values.year),
-    month: values.month,
-    monthNumber: Number(values.month),
-    day: values.day,
-    dayNumber: Number(values.day),
-  };
-}
-
-export function toKoreanISODate(date: Date) {
-  const { year, month, day } = getKoreanDateParts(date);
-  return `${year}-${month}-${day}`;
-}
 
 export function getKoreanHolidayName(date: Date): string | null {
   const isoDate = toKoreanISODate(date);

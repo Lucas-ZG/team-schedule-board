@@ -1,6 +1,11 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  ADMIN_LOCK_MESSAGE,
+  WINDOW_LOCK_MESSAGE,
+  isWithinSelfEditWindow,
+} from "@/lib/calendar";
 import type { CalendarStatus, Profile, Workplace } from "@/types/database";
 
 type StatusModalProps = {
@@ -112,7 +117,15 @@ export default function StatusModal({
     () => statuses.find((status) => status.user_id === targetUserId) || null,
     [statuses, targetUserId],
   );
-  const canEdit = isAdmin || targetUserId === currentUserId;
+  const isOwnRecord = !isAdmin && targetUserId === currentUserId;
+  const enteredByLocked =
+    isOwnRecord &&
+    Boolean(targetStatus?.entered_by) &&
+    targetStatus?.entered_by !== currentUserId;
+  const outsideSelfEditWindow =
+    isOwnRecord && !enteredByLocked && !isWithinSelfEditWindow(selectedDate);
+  const canEdit =
+    isAdmin || (isOwnRecord && !enteredByLocked && !outsideSelfEditWindow);
   const [workplaceIds, setWorkplaceIds] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const [overtimeEnabled, setOvertimeEnabled] = useState(false);
@@ -296,12 +309,18 @@ export default function StatusModal({
               </label>
             ) : null}
 
-            {!canEdit ? (
+            {enteredByLocked || outsideSelfEditWindow ? (
+              <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+                {enteredByLocked ? ADMIN_LOCK_MESSAGE : WINDOW_LOCK_MESSAGE}
+              </p>
+            ) : !canEdit ? (
               <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
                 View only. You can edit only your own status.
               </p>
             ) : null}
 
+            {/* Fields stay visible (disabled when !canEdit) so a locked
+                record's data can still be inspected, not just hidden. */}
             <fieldset className="mt-3" disabled={!canEdit || workplaces.length === 0}>
               <legend className="text-sm font-medium text-slate-700">
                 Workplace
@@ -424,28 +443,29 @@ export default function StatusModal({
               </div>
             ) : null}
 
-            <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-              <button
-                type="button"
-                onClick={() => onDelete(targetUserId)}
-                disabled={!canEdit || !targetStatus || saving}
-                className="rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
-              >
-                Delete
-              </button>
-              <button
-                type="submit"
-                disabled={
-                  !canEdit ||
-                  saving ||
-                  workplaceIds.length === 0 ||
-                  workplaces.length === 0
-                }
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
-              >
-                {saving ? "Saving..." : "Save"}
-              </button>
-            </div>
+            {canEdit ? (
+              <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => onDelete(targetUserId)}
+                  disabled={!targetStatus || saving}
+                  className="rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+                >
+                  Delete
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    saving ||
+                    workplaceIds.length === 0 ||
+                    workplaces.length === 0
+                  }
+                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+                >
+                  {saving ? "Saving..." : "Save"}
+                </button>
+              </div>
+            ) : null}
           </form>
         </div>
       </section>

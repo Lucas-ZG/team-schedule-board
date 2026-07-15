@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { getSupabaseClient } from "@/lib/supabaseClient";
+import { getKoreanDateParts, todaySeoulIsoDate } from "@/lib/timezone";
 import type { OtPeriod } from "@/types/database";
 
 type OTPeriodSettingsProps = {
@@ -14,14 +15,20 @@ function pad2(value: number) {
   return value.toString().padStart(2, "0");
 }
 
-function toIsoDate(date: Date) {
-  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+// Pure calendar arithmetic on explicit y/m/d integers (no "now" involved),
+// done in UTC so it can't be perturbed by DST or the machine's local zone.
+function isoFromYMD(year: number, month0: number, day: number) {
+  const d = new Date(Date.UTC(year, month0, day));
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
 }
 
 export function computeAutoPeriod(today: Date, startDay: number) {
-  const year = today.getFullYear();
-  const month = today.getMonth();
-  const day = today.getDate();
+  // `today` is resolved to its Asia/Seoul calendar date, not the machine's
+  // local date, so the computed period matches KST regardless of where this
+  // runs.
+  const { year, monthNumber, dayNumber } = getKoreanDateParts(today);
+  const month = monthNumber - 1;
+  const day = dayNumber;
 
   let startYear: number;
   let startMonth: number;
@@ -36,16 +43,17 @@ export function computeAutoPeriod(today: Date, startDay: number) {
     startMonth = month - 1;
   }
 
-  const start = new Date(startYear, startMonth, startDay);
   const endMonth = startMonth === 11 ? 0 : startMonth + 1;
   const endYear = startMonth === 11 ? startYear + 1 : startYear;
-  const end = new Date(endYear, endMonth, startDay - 1);
 
-  return { start: toIsoDate(start), end: toIsoDate(end) };
+  return {
+    start: isoFromYMD(startYear, startMonth, startDay),
+    end: isoFromYMD(endYear, endMonth, startDay - 1),
+  };
 }
 
 function todayIso() {
-  return toIsoDate(new Date());
+  return todaySeoulIsoDate();
 }
 
 export default function OTPeriodSettings({

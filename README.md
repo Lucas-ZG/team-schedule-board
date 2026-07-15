@@ -48,20 +48,30 @@ For a new Supabase project, run:
 supabase/schema.sql
 ```
 
-For the existing deployed project, run this migration in Supabase SQL Editor:
+For the existing deployed project, run these migrations in order in Supabase SQL Editor:
 
 ```text
 supabase/add_admin_role.sql
+supabase/migration_20260616_secure_anon_admin.sql
+supabase/add_entered_by_tracking.sql
 ```
 
-This migration adds `profiles.role`, sets `lucas@test.com` to `admin`, defaults other members to `user`, updates `daily_status` RLS so admins can manage all records, and keeps normal users restricted to their own records.
+`add_admin_role.sql` adds `profiles.role`, sets up RLS so admins can manage all records, and keeps normal users restricted to their own records.
+
+`migration_20260616_secure_anon_admin.sql` removes anonymous direct access to base tables and creates public-safe views (`v_profiles_public`, `v_workplaces_public`, `v_daily_status_public`) for the `/view` page. Email and other sensitive fields are excluded from these views.
+
+`add_entered_by_tracking.sql` adds `daily_status.entered_by` tracking (auto-set by trigger) and a 7-day self-edit window, so records entered by an admin on a user's behalf become read-only for that user.
 
 ## Admin Behavior
 
-- Admin user: `lucas@test.com`
+- Admin role is stored in `profiles.role` (value `'admin'`).
+- To grant admin, run in Supabase SQL Editor:
+  ```sql
+  UPDATE public.profiles SET role = 'admin' WHERE email = 'admin@example.com';
+  ```
 - Admin can create, update, and delete any member's `daily_status`.
 - Regular users can create, update, and delete only their own `daily_status`.
-- Everyone can still view all member statuses.
+- Everyone (including signed-out visitors) can view the `/view` page calendar, but only via the public-safe views (no email exposure).
 - Enforcement is done by Supabase RLS, not only by frontend checks.
 
 ## Troubleshooting
@@ -72,10 +82,11 @@ If you see:
 permission denied for table profiles
 ```
 
-Run:
+Run in order:
 
 ```text
 supabase/add_admin_role.sql
+supabase/migration_20260616_secure_anon_admin.sql
 ```
 
 If the Workplace dropdown is empty:

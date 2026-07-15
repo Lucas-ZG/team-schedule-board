@@ -74,6 +74,7 @@ export type Database = {
           overtime_enabled: boolean;
           overtime_hours: number;
           leave_hours: number;
+          entered_by: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -87,6 +88,7 @@ export type Database = {
           overtime_enabled?: boolean;
           overtime_hours?: number;
           leave_hours?: number;
+          entered_by?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -100,6 +102,7 @@ export type Database = {
           overtime_enabled?: boolean;
           overtime_hours?: number;
           leave_hours?: number;
+          entered_by?: string | null;
           created_at?: string;
           updated_at?: string;
         };

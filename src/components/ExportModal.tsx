@@ -3,6 +3,7 @@
 import { FormEvent, useMemo, useState } from "react";
 import * as XLSX from "xlsx-js-style";
 import { getSupabaseClient } from "@/lib/supabaseClient";
+import { firstOfSeoulMonth, lastOfSeoulMonth } from "@/lib/timezone";
 import type { DailyStatus, Profile, Workplace } from "@/types/database";
 
 type ExportModalProps = {
@@ -10,24 +11,6 @@ type ExportModalProps = {
 };
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-function pad2(value: number) {
-  return value.toString().padStart(2, "0");
-}
-
-function toIsoDate(date: Date) {
-  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
-}
-
-function firstOfMonth(reference: Date) {
-  return toIsoDate(new Date(reference.getFullYear(), reference.getMonth(), 1));
-}
-
-function lastOfMonth(reference: Date) {
-  return toIsoDate(
-    new Date(reference.getFullYear(), reference.getMonth() + 1, 0),
-  );
-}
 
 function fileTag(isoDate: string) {
   return isoDate.replace(/-/g, "");
@@ -43,6 +26,18 @@ function formatDateLabel(isoDate: string) {
     return isoDate;
   }
   return `${WEEKDAY_LABELS[date.getDay()]} ${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function pad2(value: number) {
+  return value.toString().padStart(2, "0");
+}
+
+// Formats a local-midnight Date (parsed from an ISO date string) back into
+// that same ISO string. This only round-trips a wall-clock date the caller
+// already produced; it has no dependency on "now" or the machine's
+// timezone, so it does not need to go through the Seoul-only helpers.
+function toIsoDate(date: Date) {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 }
 
 function enumerateDates(startIso: string, endIso: string): string[] {
@@ -99,8 +94,8 @@ export default function ExportModal({ onClose }: ExportModalProps) {
   const defaults = useMemo(() => {
     const now = new Date();
     return {
-      start: firstOfMonth(now),
-      end: lastOfMonth(now),
+      start: firstOfSeoulMonth(now),
+      end: lastOfSeoulMonth(now),
     };
   }, []);
 
