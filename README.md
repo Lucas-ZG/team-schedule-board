@@ -1,147 +1,86 @@
-# team_schedule
+# Team Schedule Board
 
-`team_schedule` is a Vercel-ready workplace and day-off calendar for team members. It uses Next.js, TypeScript, Tailwind CSS, Supabase Auth, Supabase Database, and Supabase Row Level Security.
+以月曆形式集中管理團隊工作地點、休假與每日備註的 Web 應用程式。系統提供登入、角色權限、唯讀公開檢視及 Excel 匯出，並透過 Supabase Row Level Security 保護資料操作。
 
-Production URL:
+## 核心功能
 
-```text
-https://team-schedule-board.vercel.app
-```
+- 月曆式團隊排班與工作地點檢視
+- 每位成員每日一筆狀態，可記錄地點、休假及備註
+- 韓國時區、週末與國定假日顯示
+- Email／Password 登入
+- 一般使用者與管理員權限區分
+- 管理員可代為新增、修改及刪除成員資料
+- 一般使用者僅能管理符合權限規則的個人資料
+- 公開唯讀頁面透過安全 View 提供必要欄位
+- 異動者追蹤與個人資料修改期限控制
+- 排班資料匯出為 Excel
 
-## Local Setup
+## 權限設計
 
-Use Windows CMD:
+| 角色 | 權限 |
+|---|---|
+| Admin | 管理所有成員的每日狀態 |
+| User | 依 RLS 規則管理自己的每日狀態 |
+| Viewer / Guest | 僅檢視允許公開的排班資料 |
 
-```cmd
-cd /d "D:\Dev\tool box\team_schedule"
+資料存取規則由 Supabase RLS 執行，不只依賴前端介面限制。公開檢視使用獨立 View，避免暴露 Email 等敏感欄位。
+
+## 技術
+
+- Next.js
+- React
+- TypeScript
+- Tailwind CSS
+- Supabase Auth
+- Supabase PostgreSQL
+- Supabase Row Level Security
+- `@hyunbinseo/holidays-kr`
+- `xlsx-js-style`
+
+## 執行
+
+安裝套件並啟動開發環境：
+
+```bash
 npm install
-copy .env.example .env.local
 npm run dev
 ```
 
-Open:
+其他可用指令：
 
-```text
-http://localhost:3000
+```bash
+npm run build
+npm run start
+npm run typecheck
 ```
 
-## Environment Variables
+## 環境變數
 
-```cmd
-copy .env.example .env.local
-```
-
-Set Supabase values in `.env.local`:
+建立本機環境變數檔並設定 Supabase 專案資訊：
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=your Supabase Project URL
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your Supabase Publishable Key
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_supabase_publishable_key
 ```
 
-Do not commit `.env.local`.
+請勿提交包含實際憑證的環境變數檔。
 
-## Supabase SQL
+## Database
 
-For a new Supabase project, run:
+`supabase/schema.sql` 包含主要資料表、Trigger、RLS Policy 與初始資料設定。既有資料庫另有 Migration 檔案，用於加入管理員權限、安全公開 View 及異動者追蹤。
 
-```text
-supabase/schema.sql
-```
+主要資料表：
 
-For the existing deployed project, run these migrations in order in Supabase SQL Editor:
+- `profiles`：使用者基本資料與角色
+- `workplaces`：工作地點及休假類型
+- `daily_status`：每日排班狀態與備註
 
-```text
-supabase/add_admin_role.sql
-supabase/migration_20260616_secure_anon_admin.sql
-supabase/add_entered_by_tracking.sql
-```
-
-`add_admin_role.sql` adds `profiles.role`, sets up RLS so admins can manage all records, and keeps normal users restricted to their own records.
-
-`migration_20260616_secure_anon_admin.sql` removes anonymous direct access to base tables and creates public-safe views (`v_profiles_public`, `v_workplaces_public`, `v_daily_status_public`) for the `/view` page. Email and other sensitive fields are excluded from these views.
-
-`add_entered_by_tracking.sql` adds `daily_status.entered_by` tracking (auto-set by trigger) and a 7-day self-edit window, so records entered by an admin on a user's behalf become read-only for that user.
-
-## Admin Behavior
-
-- Admin role is stored in `profiles.role` (value `'admin'`).
-- To grant admin, run in Supabase SQL Editor:
-  ```sql
-  UPDATE public.profiles SET role = 'admin' WHERE email = 'admin@example.com';
-  ```
-- Admin can create, update, and delete any member's `daily_status`.
-- Regular users can create, update, and delete only their own `daily_status`.
-- Everyone (including signed-out visitors) can view the `/view` page calendar, but only via the public-safe views (no email exposure).
-- Enforcement is done by Supabase RLS, not only by frontend checks.
-
-## Troubleshooting
-
-If you see:
-
-```text
-permission denied for table profiles
-```
-
-Run in order:
-
-```text
-supabase/add_admin_role.sql
-supabase/migration_20260616_secure_anon_admin.sql
-```
-
-If the Workplace dropdown is empty:
-
-1. Confirm `workplaces` has active records.
-2. Confirm authenticated users can select active workplaces.
-3. Run `supabase/schema.sql` for a new database, or `supabase/add_admin_role.sql` for the deployed database.
-
-Expected active workplaces:
-
-- K3
-- K5
-- Office
-- Home
-- Customer Site
-- dayoff
+建立新環境時，請先套用 Schema，再依需要建立 Supabase Auth 使用者及調整角色。
 
 ## Calendar Rules
 
-- Calendar dates are based on `Asia/Seoul`.
-- Week order is `Sun Mon Tue Wed Thu Fri Sat`.
-- Month title uses `YYYY/MM`, for example `2026/05`.
-- Korean Sundays are red.
-- Korean public holidays are red and display the holiday name.
-- Korean Saturdays are blue.
-- Korean holiday data comes from `@hyunbinseo/holidays-kr`.
-
-## Test Commands
-
-```cmd
-npm run dev
-npm run build
-```
-
-## GitHub Push
-
-```cmd
-git init
-git add .
-git commit -m "Initial team schedule board"
-git branch -M main
-git remote add origin <your GitHub Repo URL>
-git push -u origin main
-```
-
-## Vercel Deployment
-
-1. Push the project to GitHub.
-2. Import the repository in Vercel.
-3. Use the Next.js framework preset.
-4. Set these Vercel environment variables:
-
-```env
-NEXT_PUBLIC_SUPABASE_URL=your Supabase Project URL
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your Supabase Publishable Key
-```
-
-5. Deploy.
+- 時區：`Asia/Seoul`
+- 星期排列：Sunday 至 Saturday
+- 星期日及韓國國定假日以紅色顯示
+- 星期六以藍色顯示
+- 國定假日名稱由 `@hyunbinseo/holidays-kr` 提供
