@@ -20,19 +20,25 @@ DROP POLICY IF EXISTS "Only admin can insert ot_periods" ON public.ot_periods;
 CREATE POLICY "Only admin can insert ot_periods"
   ON public.ot_periods FOR INSERT
   TO authenticated
-  WITH CHECK (public.is_admin_user(auth.uid()));
+  WITH CHECK (
+    EXISTS (SELECT 1 FROM public.profiles WHERE profiles.id = auth.uid() AND profiles.role = 'admin')
+  );
 
 DROP POLICY IF EXISTS "Only admin can update ot_periods" ON public.ot_periods;
 CREATE POLICY "Only admin can update ot_periods"
   ON public.ot_periods FOR UPDATE
   TO authenticated
-  USING (public.is_admin_user(auth.uid()));
+  USING (
+    EXISTS (SELECT 1 FROM public.profiles WHERE profiles.id = auth.uid() AND profiles.role = 'admin')
+  );
 
 DROP POLICY IF EXISTS "Only admin can delete ot_periods" ON public.ot_periods;
 CREATE POLICY "Only admin can delete ot_periods"
   ON public.ot_periods FOR DELETE
   TO authenticated
-  USING (public.is_admin_user(auth.uid()));
+  USING (
+    EXISTS (SELECT 1 FROM public.profiles WHERE profiles.id = auth.uid() AND profiles.role = 'admin')
+  );
 
 DO $$
 BEGIN
