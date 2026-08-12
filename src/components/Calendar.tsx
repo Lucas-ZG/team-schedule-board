@@ -26,7 +26,11 @@ import {
   getSupabaseClient,
   getSupabaseConfigError,
 } from "@/lib/supabaseClient";
-import { firstOfSeoulMonth, lastOfSeoulMonth } from "@/lib/timezone";
+import {
+  firstOfSeoulMonth,
+  getKoreanDateParts,
+  lastOfSeoulMonth,
+} from "@/lib/timezone";
 import type {
   CalendarStatus,
   DailyStatus,
@@ -57,14 +61,39 @@ function formatPeriodLabel(startIso: string, endIso: string) {
   return `${start.getMonth() + 1}/${start.getDate()} ~ ${end.getMonth() + 1}/${end.getDate()}`;
 }
 
+function isoFromYearMonthDay(year: number, month0: number, day: number) {
+  const d = new Date(Date.UTC(year, month0, day));
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+}
+
+// Anchors the auto-calculate cycle to `viewedMonth` itself, independent of
+// whatever day-of-month `viewedMonth` happens to carry — unlike
+// computeAutoPeriod(), which decides the cycle by comparing a reference
+// date's actual day against startDay. Block 2 always ends in viewedMonth.
+function computeViewedMonthAutoPeriod(
+  viewedMonth: Date,
+  startDay: number,
+): { start: string; end: string } {
+  const { year, monthNumber } = getKoreanDateParts(viewedMonth);
+  const month0 = monthNumber - 1;
+  return {
+    start: isoFromYearMonthDay(year, month0 - 1, startDay),
+    end: isoFromYearMonthDay(year, month0, startDay - 1),
+  };
+}
+
 function resolvePeriodRange(
   period: OtPeriod | null,
-  fallbackReference: Date,
+  referenceDate: Date,
+  mode: "today" | "viewedMonth",
 ): { start: string; end: string } {
   if (period) {
     if (period.auto_calculate && period.auto_start_day) {
       const day = Math.min(28, Math.max(1, period.auto_start_day));
-      const computed = computeAutoPeriod(new Date(), day);
+      const computed =
+        mode === "viewedMonth"
+          ? computeViewedMonthAutoPeriod(referenceDate, day)
+          : computeAutoPeriod(referenceDate, day);
       return { start: computed.start, end: computed.end };
     }
     if (period.start_date && period.end_date) {
@@ -72,8 +101,8 @@ function resolvePeriodRange(
     }
   }
   return {
-    start: firstOfSeoulMonth(fallbackReference),
-    end: lastOfSeoulMonth(fallbackReference),
+    start: firstOfSeoulMonth(referenceDate),
+    end: lastOfSeoulMonth(referenceDate),
   };
 }
 
@@ -220,7 +249,7 @@ export default function Calendar() {
   }, [statuses]);
 
   const otSummaryRange = useMemo(
-    () => resolvePeriodRange(otPeriod, currentMonth),
+    () => resolvePeriodRange(otPeriod, currentMonth, "viewedMonth"),
     [otPeriod, currentMonth],
   );
 
@@ -230,6 +259,22 @@ export default function Calendar() {
       end: shiftBackOneMonth(otSummaryRange.end),
     }),
     [otSummaryRange.start, otSummaryRange.end],
+  );
+
+  // Export must stay pinned to today's cycle regardless of which month the
+  // calendar is currently viewing, so it gets its own range independent of
+  // currentMonth.
+  const exportSummaryRange = useMemo(
+    () => resolvePeriodRange(otPeriod, new Date(), "today"),
+    [otPeriod],
+  );
+
+  const exportPrevPeriodRange = useMemo(
+    () => ({
+      start: shiftBackOneMonth(exportSummaryRange.start),
+      end: shiftBackOneMonth(exportSummaryRange.end),
+    }),
+    [exportSummaryRange.start, exportSummaryRange.end],
   );
 
   const otSummary = useMemo(
@@ -970,8 +1015,8 @@ export default function Calendar() {
 
       {isOtExportOpen && isAdmin ? (
         <OTExportModal
-          otSummaryRange={otSummaryRange}
-          prevPeriodRange={prevPeriodRange}
+          otSummaryRange={exportSummaryRange}
+          prevPeriodRange={exportPrevPeriodRange}
           profiles={profiles}
           isAdmin={isAdmin}
           onClose={() => setIsOtExportOpen(false)}
