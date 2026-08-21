@@ -1,11 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import {
-  ADMIN_LOCK_MESSAGE,
-  WINDOW_LOCK_MESSAGE,
-  isWithinSelfEditWindow,
-} from "@/lib/calendar";
+import { WINDOW_LOCK_MESSAGE, isWithinSelfEditWindow } from "@/lib/calendar";
 import type { CalendarStatus, Profile, Workplace } from "@/types/database";
 
 type StatusModalProps = {
@@ -118,14 +114,9 @@ export default function StatusModal({
     [statuses, targetUserId],
   );
   const isOwnRecord = !isAdmin && targetUserId === currentUserId;
-  const enteredByLocked =
-    isOwnRecord &&
-    Boolean(targetStatus?.entered_by) &&
-    targetStatus?.entered_by !== currentUserId;
   const outsideSelfEditWindow =
-    isOwnRecord && !enteredByLocked && !isWithinSelfEditWindow(selectedDate);
-  const canEdit =
-    isAdmin || (isOwnRecord && !enteredByLocked && !outsideSelfEditWindow);
+    isOwnRecord && !isWithinSelfEditWindow(selectedDate);
+  const canEdit = isAdmin || (isOwnRecord && !outsideSelfEditWindow);
   const [workplaceIds, setWorkplaceIds] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const [overtimeEnabled, setOvertimeEnabled] = useState(false);
@@ -309,9 +300,9 @@ export default function StatusModal({
               </label>
             ) : null}
 
-            {enteredByLocked || outsideSelfEditWindow ? (
+            {outsideSelfEditWindow ? (
               <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
-                {enteredByLocked ? ADMIN_LOCK_MESSAGE : WINDOW_LOCK_MESSAGE}
+                {WINDOW_LOCK_MESSAGE}
               </p>
             ) : !canEdit ? (
               <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
