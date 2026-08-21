@@ -77,6 +77,7 @@ For a new database, apply `supabase/schema.sql`, followed by the feature migrati
 7. `migration_20260616_secure_anon_admin.sql`
 8. `migration_20260821_activity_logs.sql`
 9. `migration_20260821_remove_entered_by_lock.sql`
+10. `migration_20260821_restore_daily_status_insert_policy.sql`
 
 `schema.sql` already supports the `admin`, `user`, and `viewer` roles. `migration_add_viewer_role.sql` is intended only for an existing database whose role constraint predates viewer support. The legacy `add_anon_read.sql` migration should not be applied to a new deployment because the current application requires authentication and the security migration revokes anonymous access.
 
@@ -222,6 +223,7 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_supabase_publishable_key
 7. `migration_20260616_secure_anon_admin.sql`
 8. `migration_20260821_activity_logs.sql`
 9. `migration_20260821_remove_entered_by_lock.sql`
+10. `migration_20260821_restore_daily_status_insert_policy.sql`
 
 `schema.sql` 已支援 `admin`、`user` 與 `viewer`。`migration_add_viewer_role.sql` 僅供較早建立、尚未包含 viewer Constraint 的既有資料庫使用。舊版 `add_anon_read.sql` 不應套用至新環境，因為目前程式要求使用者登入，最新安全性 Migration 也會撤銷匿名存取。
 
@@ -293,3 +295,4 @@ npm run start
 - Removed the "admin-entered records are locked for the owner" rule from `daily_status` UPDATE/DELETE RLS policies and the matching frontend checks (`supabase/migration_20260821_remove_entered_by_lock.sql`, `src/lib/calendar.ts`, `src/components/StatusModal.tsx`, `src/components/Calendar.tsx`). The 7-day self-edit window is unchanged; only the `entered_by`-based lock was removed.
 - Added a version badge to the header (`src/components/Header.tsx`) sourced from `package.json`'s `version` field via `NEXT_PUBLIC_APP_VERSION` (injected in `next.config.ts`).
 - Added the admin-only `/admin/create-user` page (`src/app/admin/create-user/page.tsx`) and the `create-user` Supabase Edge Function (`supabase/functions/create-user/index.ts`) for creating new accounts with a chosen role; the function independently verifies the caller is an admin before using the service-role key server-side. Deployment (`supabase functions deploy create-user` and the `SUPABASE_SERVICE_ROLE_KEY` secret) requires the Supabase CLI, which was not available in this environment -- see the task folder's `IMPLEMENTATION_REPORT.md` for manual deployment steps.
+- Fixed a production RLS regression discovered while working on the above: dropping an undocumented legacy policy (`daily_status_insert_own_or_admin`, not defined in any migration file, found alongside similar undocumented UPDATE/DELETE policies during the `team-schedule-enhancements-2026-08-21` task) had left `daily_status` with no INSERT policy at all, blocking every non-admin from creating new records. Restored a proper `"Users can insert own daily statuses"` policy (admin bypass, or owner + 7-day self-edit window), matching the shape of the existing UPDATE/DELETE policies.
