@@ -103,7 +103,7 @@ export default function AdminCreateUserPage() {
       }
 
       setSuccessMessage(
-        `帳號建立成功：${data?.email ?? email}（角色：${data?.role ?? role}）`,
+        `Account created: ${data?.email ?? email} (role: ${data?.role ?? role})`,
       );
       setEmail("");
       setPassword("");

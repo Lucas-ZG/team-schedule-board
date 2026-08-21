@@ -663,7 +663,7 @@ export default function Calendar() {
       .single();
 
     if (deleteError || !deletedRow) {
-      setModalError("這筆紀錄可能已被刪除或不再可編輯，請重新整理。");
+      setModalError("This record may have been deleted or is no longer editable. Please refresh.");
       setSaving(false);
       return;
     }
@@ -857,7 +857,7 @@ export default function Calendar() {
                 onClick={() => setIsOtExportOpen(true)}
                 className="rounded-md border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-50"
               >
-                匯出 OT
+                Export OT
               </button>
             ) : null}
             {canEdit ? (

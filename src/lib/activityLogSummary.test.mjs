@@ -85,7 +85,7 @@ function testWellFormedUpdateStillWorks() {
     },
   });
   const result = summarizeActivityLog(log, "ChangFeng.Li");
-  assert.equal(result, "加班狀態變更為 開啟、加班時數從 0 改為 2.5 小時");
+  assert.equal(result, "Overtime enabled, Overtime hours changed from 0 to 2.5");
   console.log("PASS testWellFormedUpdateStillWorks");
 }
 
@@ -136,6 +136,29 @@ function testDetailToggleUsesExplicitNullCheck() {
   console.log("PASS testDetailToggleUsesExplicitNullCheck");
 }
 
+// -- Regression test for the code-review finding: a missing/invalid
+// `work_date` must not leave a dangling "for" with nothing after it.
+function testMissingWorkDateProducesCompleteSentence() {
+  const createLog = makeLog({
+    event_type: "create",
+    detail: { after: {} },
+  });
+  assert.equal(
+    summarizeActivityLog(createLog, "Test User"),
+    "Test User created a schedule record",
+  );
+
+  const deleteLog = makeLog({
+    event_type: "delete",
+    detail: { deleted: {} },
+  });
+  assert.equal(
+    summarizeActivityLog(deleteLog, "Test User"),
+    "Test User deleted the schedule record",
+  );
+  console.log("PASS testMissingWorkDateProducesCompleteSentence");
+}
+
 // Regression test for the review finding: a UUID-shaped `work_date` (any
 // signed-in user can insert their own activity_logs row with arbitrary
 // detail, so `work_date` is not guaranteed to actually be a date) must
@@ -172,7 +195,7 @@ function testWorkplaceLookupResolvesNames() {
     },
   });
   const result = summarizeActivityLog(log, "ChangFeng.Li", lookup);
-  assert.equal(result, "ChangFeng.Li 建立了 2026-08-22 的排班紀錄（K3）");
+  assert.equal(result, "ChangFeng.Li created a schedule record for 2026-08-22 (K3)");
   console.log("PASS testWorkplaceLookupResolvesNames");
 }
 
@@ -182,6 +205,7 @@ const tests = [
   testWellFormedUpdateStillWorks,
   testUnknownUserFallbackIsNotAUuid,
   testDetailToggleUsesExplicitNullCheck,
+  testMissingWorkDateProducesCompleteSentence,
   testUuidShapedWorkDateIsNotEmbedded,
   testRedactUuidsStripsUuidSubstrings,
   testWorkplaceLookupResolvesNames,

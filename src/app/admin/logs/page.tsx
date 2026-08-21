@@ -287,7 +287,7 @@ export default function AdminLogsPage() {
                             onClick={() => toggleExpanded(log.id)}
                             className="mt-1 text-xs font-semibold text-blue-600 hover:underline"
                           >
-                            {expandedLogIds.has(log.id) ? "收合詳細" : "查看詳細"}
+                            {expandedLogIds.has(log.id) ? "Hide details" : "View details"}
                           </button>
                           {expandedLogIds.has(log.id) ? (
                             <pre className="mt-2 whitespace-pre-wrap break-words rounded-md bg-slate-50 p-2 font-mono text-xs">

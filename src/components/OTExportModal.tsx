@@ -428,7 +428,7 @@ export default function OTExportModal({
               disabled={busy || !canExport}
               className="rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-amber-300"
             >
-              {busy ? "Exporting..." : "匯出 Excel"}
+              {busy ? "Exporting..." : "Export Excel"}
             </button>
           </div>
         </div>
