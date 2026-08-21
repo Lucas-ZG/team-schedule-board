@@ -7,6 +7,12 @@ import {
   getSupabaseClient,
   getSupabaseConfigError,
 } from "@/lib/supabaseClient";
+import {
+  buildWorkplaceLookup,
+  redactUuids,
+  summarizeActivityLog,
+  type WorkplaceLookup,
+} from "@/lib/activityLogSummary";
 import type { ActivityLog, Profile } from "@/types/database";
 
 const PAGE_SIZE = 50;
@@ -29,6 +35,8 @@ export default function AdminLogsPage() {
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [workplaces, setWorkplaces] = useState<WorkplaceLookup>(new Map());
+  const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const configError = getSupabaseConfigError();
@@ -75,6 +83,32 @@ export default function AdminLogsPage() {
       });
   }, [user, router]);
 
+  useEffect(() => {
+    if (!isAdmin) {
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    supabase
+      .from("workplaces")
+      .select("*")
+      .then(({ data }) => {
+        setWorkplaces(buildWorkplaceLookup(data || []));
+      });
+  }, [isAdmin]);
+
+  function toggleExpanded(logId: string) {
+    setExpandedLogIds((current) => {
+      const next = new Set(current);
+      if (next.has(logId)) {
+        next.delete(logId);
+      } else {
+        next.add(logId);
+      }
+      return next;
+    });
+  }
+
   const loadLogs = useCallback(async () => {
     if (!isAdmin) {
       return;
@@ -112,7 +146,10 @@ export default function AdminLogsPage() {
       return "Unknown";
     }
     const profile = profiles.find((entry) => entry.id === userId);
-    return profile?.display_name || profile?.email || userId;
+    // Never fall back to the raw id -- it's a UUID, and this label also
+    // gets embedded into the Detail column's summary sentence, which must
+    // stay free of ids even when a profile can't be resolved.
+    return profile?.display_name || profile?.email || "Unknown user";
   }
 
   if (isAdmin === null && error) {
@@ -219,7 +256,13 @@ export default function AdminLogsPage() {
                   </td>
                 </tr>
               ) : (
-                logs.map((log) => (
+                logs.map((log) => {
+                  const summary = summarizeActivityLog(
+                    log,
+                    profileLabel(log.user_id),
+                    workplaces,
+                  );
+                  return (
                   <tr key={log.id}>
                     <td className="px-4 py-2 text-slate-800">
                       {profileLabel(log.user_id)}
@@ -231,26 +274,32 @@ export default function AdminLogsPage() {
                       {new Date(log.created_at).toLocaleString()}
                     </td>
                     <td className="px-4 py-2 text-slate-600">
-                      {log.target_table ? (
-                        <>
-                          <span>{log.target_table}</span>
-                          {log.target_id ? (
-                            <span className="block truncate font-mono text-xs text-slate-400">
-                              {log.target_id}
-                            </span>
-                          ) : null}
-                        </>
-                      ) : (
-                        "-"
-                      )}
+                      {log.target_table ? redactUuids(log.target_table) : "-"}
                     </td>
                     <td className="max-w-md px-4 py-2 text-slate-600">
-                      <pre className="whitespace-pre-wrap break-words font-mono text-xs">
-                        {log.detail ? JSON.stringify(log.detail) : "-"}
-                      </pre>
+                      <p className="truncate" title={summary}>
+                        {summary}
+                      </p>
+                      {log.detail !== null ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => toggleExpanded(log.id)}
+                            className="mt-1 text-xs font-semibold text-blue-600 hover:underline"
+                          >
+                            {expandedLogIds.has(log.id) ? "收合詳細" : "查看詳細"}
+                          </button>
+                          {expandedLogIds.has(log.id) ? (
+                            <pre className="mt-2 whitespace-pre-wrap break-words rounded-md bg-slate-50 p-2 font-mono text-xs">
+                              {JSON.stringify(log.detail, null, 2)}
+                            </pre>
+                          ) : null}
+                        </>
+                      ) : null}
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>

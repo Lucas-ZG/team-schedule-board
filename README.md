@@ -124,12 +124,18 @@ Main tables:
 | `activity_logs` | Admin-only, append-only login and daily-status edit history. |
 
 Administrators can view `/admin/logs` to see who logged in and who created,
-updated, or deleted a shift/overtime/leave record, and when. This is a usage
-log, not a tamper-proof security audit trail: entries are written by the
-client after a successful login or edit, so a call made directly against the
-Supabase API (bypassing this app) would not be recorded. The table's RLS
-policy allows `SELECT` to admins only, `INSERT` of a user's own rows to any
-signed-in user, and no `UPDATE`/`DELETE` for any role.
+updated, or deleted a shift/overtime/leave record, and when. The Detail
+column shows a plain-language summary (e.g. "Overtime hours changed from 0
+to 2.5") built by `src/lib/activityLogSummary.ts` from the stored before/
+after/deleted snapshot -- only the fields that actually changed are listed,
+and record ids/workplace ids are hidden by default. A "View details" toggle
+expands the original raw JSON in place for anyone who needs to verify the
+exact stored values. This is a usage log, not a tamper-proof security audit
+trail: entries are written by the client after a successful login or edit,
+so a call made directly against the Supabase API (bypassing this app) would
+not be recorded. The table's RLS policy allows `SELECT` to admins only,
+`INSERT` of a user's own rows to any signed-in user, and no `UPDATE`/`DELETE`
+for any role.
 
 Administrators can view `/admin/create-user` to create a new account (email,
 password, and role) without leaving the app. The page calls the `create-user`
@@ -269,7 +275,7 @@ npm run start
 | `ot_periods` | 手動設定或自動計算的加班日期範圍。 |
 | `activity_logs` | 僅管理員可讀、只能新增不能修改的登入與編輯紀錄。 |
 
-管理員可查看 `/admin/logs`，了解誰在何時登入、以及誰在何時新增／修改／刪除了排班、加班或請假紀錄。此功能定位為使用紀錄，非防竄改的安全稽核機制：紀錄是在登入或編輯成功後由前端呼叫寫入，若有人繞過此應用程式直接呼叫 Supabase API，該次操作不會被記錄。此資料表的 RLS policy 只允許管理員 `SELECT`、允許登入使用者新增屬於自己的紀錄，任何角色皆不可 `UPDATE`／`DELETE`。
+管理員可查看 `/admin/logs`，了解誰在何時登入、以及誰在何時新增／修改／刪除了排班、加班或請假紀錄。Detail 欄位預設顯示一句由 `src/lib/activityLogSummary.ts` 產生的白話摘要（例如「加班時數從 0 改為 2.5 小時」），只列出實際有變化的欄位，且預設隱藏紀錄 id／工作地點 id 等 UUID；點擊「查看詳細」可在原地展開完整原始 JSON 供查證。此功能定位為使用紀錄，非防竄改的安全稽核機制：紀錄是在登入或編輯成功後由前端呼叫寫入，若有人繞過此應用程式直接呼叫 Supabase API，該次操作不會被記錄。此資料表的 RLS policy 只允許管理員 `SELECT`、允許登入使用者新增屬於自己的紀錄，任何角色皆不可 `UPDATE`／`DELETE`。
 
 管理員可查看 `/admin/create-user`，直接在應用程式內建立新帳號（Email、密碼、角色）。該頁面呼叫 `create-user` Edge Function，Edge Function 會獨立驗證呼叫者身分（透過呼叫者本人的 JWT 查詢 `profiles.role`），確認是管理員才在伺服器端使用 service role key 執行，前端頁面只是隱藏連結並將非管理員導回首頁，並非真正的安全防線。
 
@@ -296,3 +302,4 @@ npm run start
 - Added a version badge to the header (`src/components/Header.tsx`) sourced from `package.json`'s `version` field via `NEXT_PUBLIC_APP_VERSION` (injected in `next.config.ts`).
 - Added the admin-only `/admin/create-user` page (`src/app/admin/create-user/page.tsx`) and the `create-user` Supabase Edge Function (`supabase/functions/create-user/index.ts`) for creating new accounts with a chosen role; the function independently verifies the caller is an admin before using the service-role key server-side. Deployment (`supabase functions deploy create-user` and the `SUPABASE_SERVICE_ROLE_KEY` secret) requires the Supabase CLI, which was not available in this environment -- see the task folder's `IMPLEMENTATION_REPORT.md` for manual deployment steps.
 - Fixed a production RLS regression discovered while working on the above: dropping an undocumented legacy policy (`daily_status_insert_own_or_admin`, not defined in any migration file, found alongside similar undocumented UPDATE/DELETE policies during the `team-schedule-enhancements-2026-08-21` task) had left `daily_status` with no INSERT policy at all, blocking every non-admin from creating new records. Restored a proper `"Users can insert own daily statuses"` policy (admin bypass, or owner + 7-day self-edit window), matching the shape of the existing UPDATE/DELETE policies.
+- Improved `/admin/logs` readability: the Detail column now shows a plain-language summary (only the fields that actually changed) instead of raw JSON, with a "View details" toggle to expand the original JSON in place; the Target column no longer shows a raw record id. New `src/lib/activityLogSummary.ts` module, display-only -- the underlying `activity_logs` data and write path are unchanged. See the `team-schedule-log-readability-2026-08-21` task folder for detail.
