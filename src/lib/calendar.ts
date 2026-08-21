@@ -49,7 +49,7 @@ export function isWithinSelfEditWindow(
 // Shared read-only lock copy for non-admin users, used by both the
 // single-day StatusModal and the multi-day batch apply flow so the
 // wording (and the day count) never drifts between the two.
-export const WINDOW_LOCK_MESSAGE = `你只能新增或修改最近 ${SELF_EDIT_WINDOW_DAYS} 天內的紀錄，較舊的紀錄請聯絡管理員協助修改。`;
+export const WINDOW_LOCK_MESSAGE = `You can only add or edit records from the last ${SELF_EDIT_WINDOW_DAYS} days. Contact an admin to modify older records.`;
 
 export function addMonths(date: Date, amount: number) {
   const { year, monthNumber } = getKoreanDateParts(date);
