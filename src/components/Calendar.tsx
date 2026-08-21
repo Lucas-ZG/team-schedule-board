@@ -26,6 +26,7 @@ import {
   getSupabaseClient,
   getSupabaseConfigError,
 } from "@/lib/supabaseClient";
+import { logActivity } from "@/lib/activityLog";
 import {
   firstOfSeoulMonth,
   getKoreanDateParts,
@@ -590,17 +591,44 @@ export default function Calendar() {
           .from("daily_status")
           .update(savePayload)
           .eq("id", targetStatus.id)
-      : await supabase.from("daily_status").insert({
-          user_id: targetUserId,
-          work_date: selectedDay.isoDate,
-          ...savePayload,
-        });
+          .select("id")
+          .single()
+      : await supabase
+          .from("daily_status")
+          .insert({
+            user_id: targetUserId,
+            work_date: selectedDay.isoDate,
+            ...savePayload,
+          })
+          .select("id")
+          .single();
 
     if (result.error) {
       setModalError(result.error.message);
       setSaving(false);
       return;
     }
+
+    void logActivity({
+      eventType: targetStatus ? "update" : "create",
+      targetTable: "daily_status",
+      targetId: targetStatus?.id ?? result.data?.id ?? null,
+      detail: {
+        work_date: selectedDay.isoDate,
+        target_user_id: targetUserId,
+        before: targetStatus
+          ? {
+              workplace_id: targetStatus.workplace_id,
+              workplace_ids: targetStatus.workplace_ids,
+              note: targetStatus.note,
+              overtime_enabled: targetStatus.overtime_enabled,
+              overtime_hours: targetStatus.overtime_hours,
+              leave_hours: targetStatus.leave_hours,
+            }
+          : null,
+        after: savePayload,
+      },
+    });
 
     await loadMonthData();
     setSaving(false);
@@ -628,16 +656,36 @@ export default function Calendar() {
     setModalError(null);
 
     const supabase = getSupabaseClient();
-    const { error: deleteError } = await supabase
+    const { data: deletedRow, error: deleteError } = await supabase
       .from("daily_status")
       .delete()
-      .eq("id", targetStatus.id);
+      .eq("id", targetStatus.id)
+      .select("id")
+      .single();
 
-    if (deleteError) {
-      setModalError(deleteError.message);
+    if (deleteError || !deletedRow) {
+      setModalError("這筆紀錄可能已被刪除或不再可編輯，請重新整理。");
       setSaving(false);
       return;
     }
+
+    void logActivity({
+      eventType: "delete",
+      targetTable: "daily_status",
+      targetId: targetStatus.id,
+      detail: {
+        work_date: selectedDay.isoDate,
+        target_user_id: effectiveUserId,
+        deleted: {
+          workplace_id: targetStatus.workplace_id,
+          workplace_ids: targetStatus.workplace_ids,
+          note: targetStatus.note,
+          overtime_enabled: targetStatus.overtime_enabled,
+          overtime_hours: targetStatus.overtime_hours,
+          leave_hours: targetStatus.leave_hours,
+        },
+      },
+    });
 
     await loadMonthData();
     setSaving(false);
@@ -701,25 +749,64 @@ export default function Calendar() {
 
     setSaving(true);
 
-    const { error: upsertError } = await supabase.from("daily_status").upsert(
-      selectedDateList.map((workDate) => ({
-        user_id: targetUserId,
-        work_date: workDate,
-        workplace_id: payload.workplaceIds[0],
-        workplace_ids: payload.workplaceIds,
-        note: payload.note.trim() || null,
-        overtime_enabled: payload.overtimeEnabled,
-        overtime_hours: payload.overtimeEnabled ? payload.overtimeHours : 0,
-        leave_hours: payload.leaveHours,
-      })),
-      { onConflict: "user_id,work_date" },
-    );
+    const batchPayload = {
+      workplace_id: payload.workplaceIds[0],
+      workplace_ids: payload.workplaceIds,
+      note: payload.note.trim() || null,
+      overtime_enabled: payload.overtimeEnabled,
+      overtime_hours: payload.overtimeEnabled ? payload.overtimeHours : 0,
+      leave_hours: payload.leaveHours,
+    };
+
+    const { data: upsertedRows, error: upsertError } = await supabase
+      .from("daily_status")
+      .upsert(
+        selectedDateList.map((workDate) => ({
+          user_id: targetUserId,
+          work_date: workDate,
+          ...batchPayload,
+        })),
+        { onConflict: "user_id,work_date" },
+      )
+      .select("id, work_date");
 
     if (upsertError) {
       setBatchError(upsertError.message);
       setSaving(false);
       return;
     }
+
+    const upsertedIdByDate = new Map(
+      (upsertedRows || []).map((row) => [row.work_date, row.id]),
+    );
+
+    selectedDateList.forEach((workDate) => {
+      const existing = statuses.find(
+        (status) =>
+          status.user_id === targetUserId && status.work_date === workDate,
+      );
+      void logActivity({
+        eventType: existing ? "update" : "create",
+        targetTable: "daily_status",
+        targetId: existing?.id ?? upsertedIdByDate.get(workDate) ?? null,
+        detail: {
+          work_date: workDate,
+          target_user_id: targetUserId,
+          batch: true,
+          before: existing
+            ? {
+                workplace_id: existing.workplace_id,
+                workplace_ids: existing.workplace_ids,
+                note: existing.note,
+                overtime_enabled: existing.overtime_enabled,
+                overtime_hours: existing.overtime_hours,
+                leave_hours: existing.leave_hours,
+              }
+            : null,
+          after: batchPayload,
+        },
+      });
+    });
 
     await loadMonthData();
     setSaving(false);
@@ -750,7 +837,7 @@ export default function Calendar() {
 
   return (
     <div className="min-h-screen bg-[#f7f8fb]">
-      <Header userLabel={userLabel} onLogout={handleLogout} />
+      <Header userLabel={userLabel} onLogout={handleLogout} isAdmin={isAdmin} />
 
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         <section className="mb-5 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">

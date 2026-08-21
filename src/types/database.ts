@@ -153,6 +153,44 @@ export type Database = {
         };
         Relationships: [];
       };
+      activity_logs: {
+        Row: {
+          id: string;
+          user_id: string | null;
+          event_type: "login" | "create" | "update" | "delete";
+          target_table: string | null;
+          target_id: string | null;
+          detail: Json | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string | null;
+          event_type: "login" | "create" | "update" | "delete";
+          target_table?: string | null;
+          target_id?: string | null;
+          detail?: Json | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string | null;
+          event_type?: "login" | "create" | "update" | "delete";
+          target_table?: string | null;
+          target_id?: string | null;
+          detail?: Json | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "activity_logs_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -165,6 +203,7 @@ export type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 export type Workplace = Database["public"]["Tables"]["workplaces"]["Row"];
 export type DailyStatus = Database["public"]["Tables"]["daily_status"]["Row"];
 export type OtPeriod = Database["public"]["Tables"]["ot_periods"]["Row"];
+export type ActivityLog = Database["public"]["Tables"]["activity_logs"]["Row"];
 
 export type CalendarStatus = DailyStatus & {
   profile?: Profile;
