@@ -6,6 +6,7 @@ import {
   getSupabaseClient,
   getSupabaseConfigError,
 } from "@/lib/supabaseClient";
+import { logActivity } from "@/lib/activityLog";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -52,6 +53,8 @@ export default function LoginPage() {
       setError(signInError.message);
       return;
     }
+
+    void logActivity({ eventType: "login", detail: { email } });
 
     router.replace("/");
   }

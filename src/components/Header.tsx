@@ -1,11 +1,14 @@
 "use client";
 
+import Link from "next/link";
+
 type HeaderProps = {
   userLabel: string;
   onLogout: () => void;
+  isAdmin?: boolean;
 };
 
-export default function Header({ userLabel, onLogout }: HeaderProps) {
+export default function Header({ userLabel, onLogout, isAdmin }: HeaderProps) {
   return (
     <header className="border-b border-slate-200 bg-white">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
@@ -19,6 +22,14 @@ export default function Header({ userLabel, onLogout }: HeaderProps) {
         </div>
 
         <div className="flex min-w-0 items-center gap-3">
+          {isAdmin ? (
+            <Link
+              href="/admin/logs"
+              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              Logs
+            </Link>
+          ) : null}
           <span className="hidden max-w-[240px] truncate text-sm text-slate-600 sm:inline">
             {userLabel}
           </span>
