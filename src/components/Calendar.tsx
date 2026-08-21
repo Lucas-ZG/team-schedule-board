@@ -13,7 +13,6 @@ import OTPeriodSettings, {
 } from "@/components/OTPeriodSettings";
 import StatusModal from "@/components/StatusModal";
 import {
-  ADMIN_LOCK_MESSAGE,
   WEEKDAYS,
   WINDOW_LOCK_MESSAGE,
   addMonths,
@@ -713,16 +712,6 @@ export default function Calendar() {
     if (!isAdmin) {
       const lockReasons = selectedDateList
         .map((workDate) => {
-          const existing = statuses.find(
-            (status) =>
-              status.user_id === targetUserId && status.work_date === workDate,
-          );
-          const enteredByLocked =
-            Boolean(existing?.entered_by) &&
-            existing?.entered_by !== targetUserId;
-          if (enteredByLocked) {
-            return { workDate, message: ADMIN_LOCK_MESSAGE };
-          }
           if (!isWithinSelfEditWindow(workDate)) {
             return { workDate, message: WINDOW_LOCK_MESSAGE };
           }

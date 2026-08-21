@@ -36,6 +36,11 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    // Deno-runtime Edge Functions (npm: specifiers, global Deno object)
+    // are not TypeScript-compatible with Next.js's tsc -- they're deployed
+    // and type-checked separately via the Supabase CLI, not part of the
+    // Next app build.
+    "supabase/functions"
   ]
 }

@@ -20,7 +20,8 @@ export type CalendarDay = {
 export const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 // How many days back from today a user may self-edit their own daily_status
-// records. Mirrored by the RLS policies in supabase/add_entered_by_tracking.sql.
+// records. Mirrored by the RLS policies in
+// supabase/migration_20260821_remove_entered_by_lock.sql.
 export const SELF_EDIT_WINDOW_DAYS = 7;
 
 export function dateToISO(date: Date) {
@@ -48,8 +49,6 @@ export function isWithinSelfEditWindow(
 // Shared read-only lock copy for non-admin users, used by both the
 // single-day StatusModal and the multi-day batch apply flow so the
 // wording (and the day count) never drifts between the two.
-export const ADMIN_LOCK_MESSAGE =
-  "這筆紀錄是由管理員設定的，如需修改請聯絡管理員。";
 export const WINDOW_LOCK_MESSAGE = `你只能新增或修改最近 ${SELF_EDIT_WINDOW_DAYS} 天內的紀錄，較舊的紀錄請聯絡管理員協助修改。`;
 
 export function addMonths(date: Date, amount: number) {

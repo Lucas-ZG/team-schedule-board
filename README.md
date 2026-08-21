@@ -19,6 +19,8 @@ Team Schedule Board is an authenticated calendar application for managing team w
 - Configurable manual or automatically calculated overtime periods.
 - Administrator-only schedule and overtime Excel exports.
 - Administrator-only activity log page recording logins and daily-status (shift/OT/leave) create/update/delete events.
+- Administrator-only page for creating new user accounts (email, password, role) via a Supabase Edge Function.
+- Header badge showing the running app version, sourced from `package.json`.
 - Ordered member display through profile sort values.
 - Email/password authentication with three roles:
 
@@ -28,7 +30,7 @@ Team Schedule Board is an authenticated calendar application for managing team w
 | `user` | Views the team calendar and manages eligible personal records. |
 | `viewer` | Authenticated read-only calendar access. |
 
-Regular users can edit only records within the seven-day self-edit window. Records entered by an administrator on a user's behalf remain read-only for that user. These restrictions are enforced in both the interface and Supabase RLS policies.
+Regular users can edit only records within the seven-day self-edit window. This restriction is enforced in both the interface and Supabase RLS policies. Records entered by an administrator on a user's behalf are no longer locked for that user -- ownership of the record and the seven-day window are the only conditions that matter for a regular user.
 
 ### Tech Stack
 
@@ -74,8 +76,18 @@ For a new database, apply `supabase/schema.sql`, followed by the feature migrati
 6. `add_leave_hours.sql`
 7. `migration_20260616_secure_anon_admin.sql`
 8. `migration_20260821_activity_logs.sql`
+9. `migration_20260821_remove_entered_by_lock.sql`
 
 `schema.sql` already supports the `admin`, `user`, and `viewer` roles. `migration_add_viewer_role.sql` is intended only for an existing database whose role constraint predates viewer support. The legacy `add_anon_read.sql` migration should not be applied to a new deployment because the current application requires authentication and the security migration revokes anonymous access.
+
+The admin-only `/admin/create-user` page calls the `create-user` Supabase Edge Function (`supabase/functions/create-user`), which needs the Supabase CLI to deploy and a `SUPABASE_SERVICE_ROLE_KEY` secret configured in the Supabase project (never in `.env.local` or any client-readable file):
+
+```bash
+supabase login
+supabase link --project-ref your-project-ref
+supabase functions deploy create-user
+supabase secrets set SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+```
 
 Start the development server:
 
@@ -93,8 +105,8 @@ npm run start
 
 ### Usage
 
-1. Create users through Supabase Auth.
-2. Assign each user's role in the `profiles` table.
+1. Create users through Supabase Auth, or have an administrator use the `/admin/create-user` page.
+2. Assign each user's role in the `profiles` table (or set it directly when creating the account through `/admin/create-user`).
 3. Maintain active workplace options in the `workplaces` table.
 4. Sign in and select a calendar date to manage an eligible daily record.
 5. Use multi-select to apply the same status to several dates.
@@ -117,6 +129,13 @@ client after a successful login or edit, so a call made directly against the
 Supabase API (bypassing this app) would not be recorded. The table's RLS
 policy allows `SELECT` to admins only, `INSERT` of a user's own rows to any
 signed-in user, and no `UPDATE`/`DELETE` for any role.
+
+Administrators can view `/admin/create-user` to create a new account (email,
+password, and role) without leaving the app. The page calls the `create-user`
+Edge Function, which independently verifies the caller is an admin (via the
+caller's own JWT and `profiles.role`) before using the service-role key on
+the server side -- the page itself only hides the link and redirects
+non-admins, it is not the security boundary.
 
 ### Notes
 
@@ -145,6 +164,8 @@ Team Schedule Board 是一套需登入使用的團隊月曆系統，用於管理
 - 支援手動設定或依每月起始日自動計算加班週期。
 - 僅管理員可匯出排班及加班 Excel。
 - 僅管理員可查看使用紀錄頁面，記錄登入與排班/加班/請假紀錄的新增／修改／刪除事件。
+- 僅管理員可透過 Supabase Edge Function 建立新使用者帳號（Email、密碼、角色）。
+- Header 右上角顯示版本徽章，版號來源為 `package.json`。
 - 可透過 Profile 排序值控制成員顯示順序。
 - 使用 Email／Password 登入並分為三種角色：
 
@@ -154,7 +175,7 @@ Team Schedule Board 是一套需登入使用的團隊月曆系統，用於管理
 | `user` | 查看團隊月曆並管理符合條件的個人資料。 |
 | `viewer` | 登入後僅能查看月曆。 |
 
-一般使用者只能編輯最近七天自主管理期限內的資料。若資料由管理員代為建立，該使用者無法自行修改。這些限制同時由前端介面與 Supabase RLS Policy 執行。
+一般使用者只能編輯最近七天自主管理期限內的資料，此限制同時由前端介面與 Supabase RLS Policy 執行。即使資料是由管理員代為建立，只要落在七天視窗內，該使用者本人仍可自行編輯──資料歸屬（是否為本人的紀錄）與七天視窗才是限制條件。
 
 ### 技術架構
 
@@ -200,8 +221,18 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_supabase_publishable_key
 6. `add_leave_hours.sql`
 7. `migration_20260616_secure_anon_admin.sql`
 8. `migration_20260821_activity_logs.sql`
+9. `migration_20260821_remove_entered_by_lock.sql`
 
 `schema.sql` 已支援 `admin`、`user` 與 `viewer`。`migration_add_viewer_role.sql` 僅供較早建立、尚未包含 viewer Constraint 的既有資料庫使用。舊版 `add_anon_read.sql` 不應套用至新環境，因為目前程式要求使用者登入，最新安全性 Migration 也會撤銷匿名存取。
+
+`/admin/create-user` 頁面會呼叫 `create-user` Supabase Edge Function（`supabase/functions/create-user`），需要用 Supabase CLI 部署，並在 Supabase 專案後台設定 `SUPABASE_SERVICE_ROLE_KEY` secret（絕不可放進 `.env.local` 或任何前端可讀的檔案）：
+
+```bash
+supabase login
+supabase link --project-ref your-project-ref
+supabase functions deploy create-user
+supabase secrets set SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+```
 
 啟動開發環境：
 
@@ -219,8 +250,8 @@ npm run start
 
 ### 使用方式
 
-1. 透過 Supabase Auth 建立使用者。
-2. 在 `profiles` 資料表設定每位使用者的角色。
+1. 透過 Supabase Auth 建立使用者，或由管理員透過 `/admin/create-user` 頁面建立。
+2. 在 `profiles` 資料表設定每位使用者的角色（或在 `/admin/create-user` 建立帳號時直接指定）。
 3. 在 `workplaces` 資料表維護可使用的工作地點。
 4. 登入後選擇月曆日期，管理符合權限的每日資料。
 5. 使用多選模式將相同狀態套用至多個日期。
@@ -237,6 +268,8 @@ npm run start
 | `activity_logs` | 僅管理員可讀、只能新增不能修改的登入與編輯紀錄。 |
 
 管理員可查看 `/admin/logs`，了解誰在何時登入、以及誰在何時新增／修改／刪除了排班、加班或請假紀錄。此功能定位為使用紀錄，非防竄改的安全稽核機制：紀錄是在登入或編輯成功後由前端呼叫寫入，若有人繞過此應用程式直接呼叫 Supabase API，該次操作不會被記錄。此資料表的 RLS policy 只允許管理員 `SELECT`、允許登入使用者新增屬於自己的紀錄，任何角色皆不可 `UPDATE`／`DELETE`。
+
+管理員可查看 `/admin/create-user`，直接在應用程式內建立新帳號（Email、密碼、角色）。該頁面呼叫 `create-user` Edge Function，Edge Function 會獨立驗證呼叫者身分（透過呼叫者本人的 JWT 查詢 `profiles.role`），確認是管理員才在伺服器端使用 service role key 執行，前端頁面只是隱藏連結並將非管理員導回首頁，並非真正的安全防線。
 
 ### 注意事項
 
@@ -257,3 +290,6 @@ npm run start
 - Added the admin-only `/admin/logs` page (`src/app/admin/logs/page.tsx`) showing paginated login and edit history; non-admins are redirected to `/`.
 - Added an admin-only "Logs" link in the header (`src/components/Header.tsx`).
 - Investigated whether non-admins can edit past shift/overtime records: they can, but only within a rolling 7-day self-edit window (`SELF_EDIT_WINDOW_DAYS` in `src/lib/calendar.ts`, mirrored in the `daily_status` RLS policies) and only for records not entered on their behalf by an admin. See the `team-schedule-admin-log-2026-08-21` task folder's `FINDINGS_PERMISSION_CHECK.md` for full detail.
+- Removed the "admin-entered records are locked for the owner" rule from `daily_status` UPDATE/DELETE RLS policies and the matching frontend checks (`supabase/migration_20260821_remove_entered_by_lock.sql`, `src/lib/calendar.ts`, `src/components/StatusModal.tsx`, `src/components/Calendar.tsx`). The 7-day self-edit window is unchanged; only the `entered_by`-based lock was removed.
+- Added a version badge to the header (`src/components/Header.tsx`) sourced from `package.json`'s `version` field via `NEXT_PUBLIC_APP_VERSION` (injected in `next.config.ts`).
+- Added the admin-only `/admin/create-user` page (`src/app/admin/create-user/page.tsx`) and the `create-user` Supabase Edge Function (`supabase/functions/create-user/index.ts`) for creating new accounts with a chosen role; the function independently verifies the caller is an admin before using the service-role key server-side. Deployment (`supabase functions deploy create-user` and the `SUPABASE_SERVICE_ROLE_KEY` secret) requires the Supabase CLI, which was not available in this environment -- see the task folder's `IMPLEMENTATION_REPORT.md` for manual deployment steps.
