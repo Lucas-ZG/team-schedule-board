@@ -39,13 +39,17 @@ import type {
   Workplace,
 } from "@/types/database";
 
+// Display order confirmed with Lucas on 2026-08-24. Any workplace name not
+// listed here (e.g. a newly added site) falls back to alphabetical order,
+// sorted after every name that does appear in this list.
 const WORKPLACE_ORDER = [
   "K3",
   "K5",
   "Office",
-  "Home",
-  "Customer Site",
-  "dayoff",
+  "ITEK",
+  "Tester",
+  "Other Customer Site",
+  "Dayoff",
 ];
 
 function pad2(value: number) {
@@ -219,6 +223,8 @@ export default function Calendar() {
   const [batchError, setBatchError] = useState<string | null>(null);
   const [otPeriod, setOtPeriod] = useState<OtPeriod | null>(null);
   const [otPeriodStatuses, setOtPeriodStatuses] = useState<DailyStatus[]>([]);
+  const [otPeriodError, setOtPeriodError] = useState<string | null>(null);
+  const [otRangeError, setOtRangeError] = useState<string | null>(null);
   const [isOtSettingsOpen, setIsOtSettingsOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isOtExportOpen, setIsOtExportOpen] = useState(false);
@@ -448,7 +454,14 @@ export default function Calendar() {
         };
       }),
     );
-    if (!otPeriodResult.error) {
+    if (otPeriodResult.error) {
+      console.error("Failed to load OT period:", otPeriodResult.error);
+      setOtPeriodError(
+        "Unable to load the OT period. Please retry or contact an administrator.",
+      );
+      setOtPeriod(null);
+    } else {
+      setOtPeriodError(null);
       setOtPeriod((otPeriodResult.data as OtPeriod | null) ?? null);
     }
     setError(
@@ -508,9 +521,16 @@ export default function Calendar() {
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (!periodError) {
-      setOtPeriod((data as OtPeriod | null) ?? null);
+    if (periodError) {
+      console.error("Failed to reload OT period:", periodError);
+      setOtPeriodError(
+        "Unable to load the OT period. Please retry or contact an administrator.",
+      );
+      setOtPeriod(null);
+      return;
     }
+    setOtPeriodError(null);
+    setOtPeriod((data as OtPeriod | null) ?? null);
   }, [user]);
 
   useEffect(() => {
@@ -526,9 +546,18 @@ export default function Calendar() {
       .lte("work_date", otSummaryRange.end)
       .eq("overtime_enabled", true)
       .then(({ data, error: rangeError }) => {
-        if (cancelled || rangeError) {
+        if (cancelled) {
           return;
         }
+        if (rangeError) {
+          console.error("Failed to load OT summary range:", rangeError);
+          setOtRangeError(
+            "Unable to load the OT summary. Please retry or contact an administrator.",
+          );
+          setOtPeriodStatuses([]);
+          return;
+        }
+        setOtRangeError(null);
         setOtPeriodStatuses((data as DailyStatus[]) || []);
       });
     return () => {
@@ -942,6 +971,11 @@ export default function Calendar() {
               </button>
             ) : null}
           </div>
+          {otPeriodError || otRangeError ? (
+            <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {[otPeriodError, otRangeError].filter(Boolean).join(" ")}
+            </div>
+          ) : null}
           <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <p className="text-xs font-semibold text-amber-700">
