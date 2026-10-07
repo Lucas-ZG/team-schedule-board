@@ -14,6 +14,7 @@ import {
   summarizeActivityLog,
   type WorkplaceLookup,
 } from "@/lib/activityLogSummary";
+import { formatDisplayName, formatMemberName } from "@/lib/displayName";
 import type { ActivityLog, Profile, UserHistoryLabel } from "@/types/database";
 
 const PAGE_SIZE = 50;
@@ -150,7 +151,7 @@ export default function AdminLogsPage() {
 
   function profileLabel(log: ActivityLog) {
     // The name snapshot inside detail is client-writable; resolveLogUserLabel only trusts it on the reserved delete-user event.
-    return resolveLogUserLabel(log, profiles, historyLabels);
+    return formatMemberName(resolveLogUserLabel(log, profiles, historyLabels));
   }
 
   if (isAdmin === null && error) {
@@ -262,6 +263,7 @@ export default function AdminLogsPage() {
                     log,
                     profileLabel(log),
                     workplaces,
+                    formatDisplayName,
                   );
                   return (
                   <tr key={log.id}>

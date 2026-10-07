@@ -40,7 +40,7 @@ export function isDeleteUserEvent(log: Pick<ActivityLog, "event_type" | "target_
 }
 
 type LabelProfile = { id: string; display_name: string | null; email: string | null };
-type LabelHistory = { user_id: string; display_name: string };
+type LabelHistory = { user_id: string; display_name: string; deleted_at?: string | null };
 
 // Name shown for the user of a Logs row. The actor snapshot inside detail is used ONLY for the reserved delete-user event;
 // all other rows resolve by user_id (current profile, then the history-label table). Never falls back to the raw id.
@@ -56,7 +56,9 @@ export function resolveLogUserLabel(
     ? log.detail.actor_name : null;
   const profile = profiles.find((entry) => entry.id === log.user_id);
   const history = historyLabels.find((entry) => entry.user_id === log.user_id);
-  return snapshot || profile?.display_name || profile?.email || history?.display_name || "已刪除使用者";
+  // A user whose profile is gone but whose history label is marked deleted gets the same "（已刪除）" marker as the calendar.
+  const historyName = history ? (history.deleted_at ? `${history.display_name}（已刪除）` : history.display_name) : null;
+  return snapshot || profile?.display_name || profile?.email || historyName || "已刪除使用者";
 }
 
 const UUID_PATTERN =
@@ -235,18 +237,32 @@ function snapshotFragment(
   return parts.length > 0 ? parts.join(", ") : null;
 }
 
+// Deleted-marker rule for the Logs page: every name that stands for a user identity (User column, names inside other event
+// summaries) is shown as "Formatted Name（已刪除）" once that user is deleted -- see resolveLogUserLabel.  THE ONLY EXCEPTION is
+// the target name inside the delete-user event summary ("Admin 刪除使用者 Gone Person"): that event already states the person was
+// deleted, so a marker there would be redundant.  Only the reserved (trusted) event shape yields a target name; anything else -> null.
+export function resolveDeleteUserTargetName(
+  log: Pick<ActivityLog, "event_type" | "target_table" | "detail">,
+  formatName: (name: string) => string = (name) => name,
+): string | null {
+  if (!isDeleteUserEvent(log) || !isPlainObject(log.detail)) {
+    return null;
+  }
+  return typeof log.detail.target_name === "string" ? formatName(log.detail.target_name) : null;
+}
+
 function summarize(
   log: ActivityLog,
   userLabel: string,
   workplaces?: WorkplaceLookup,
+  formatName: (name: string) => string = (name) => name,
 ): string {
   if (log.event_type === "login") {
     return `${userLabel} logged in`;
   }
 
   if (isDeleteUserEvent(log) && isPlainObject(log.detail)) {
-    const target = typeof log.detail.target_name === "string" ? log.detail.target_name : "使用者";
-    return `${userLabel} 刪除使用者 ${target}`;
+    return `${userLabel} 刪除使用者 ${resolveDeleteUserTargetName(log, formatName) ?? "使用者"}`;
   }
 
   const detail = asDailyStatusDetail(log.detail);
@@ -280,9 +296,11 @@ export function summarizeActivityLog(
   log: ActivityLog,
   userLabel: string,
   workplaces?: WorkplaceLookup,
+  // Display-only hook for names stored inside detail (e.g. the delete-user target snapshot); defaults to the raw name.
+  formatName?: (name: string) => string,
 ): string {
   try {
-    return redactUuids(summarize(log, userLabel, workplaces));
+    return redactUuids(summarize(log, userLabel, workplaces, formatName));
   } catch {
     return "Record updated (summary generation failed, expand to view raw data)";
   }

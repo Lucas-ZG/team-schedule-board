@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import type { CalendarDay } from "@/lib/calendar";
+import { formatMemberName } from "@/lib/displayName";
 import { resolveStatusMemberName } from "@/lib/memberLabel";
 import type { CalendarStatus } from "@/types/database";
 
@@ -15,7 +16,7 @@ type DayCellProps = {
 };
 
 function getDisplayName(status: CalendarStatus) {
-  return resolveStatusMemberName(status);
+  return formatMemberName(resolveStatusMemberName(status));
 }
 
 function getResolvedWorkplaces(status: CalendarStatus) {
