@@ -17,6 +17,8 @@ import {
   summarizeActivityLog,
   buildWorkplaceLookup,
   redactUuids,
+  resolveLogUserLabel,
+  isDeleteUserEvent,
 } from "./activityLogSummary.ts";
 
 const UUID = "123e4567-e89b-12d3-a456-426614174000";
@@ -102,16 +104,20 @@ function testUnknownUserFallbackIsNotAUuid() {
   );
   const match = source.match(/function profileLabel[\s\S]*?\n  \}/);
   assert.ok(match, "profileLabel function not found");
-  const fnBody = match[0];
+  assert.ok(/resolveLogUserLabel\(/.test(match[0]), "profileLabel must delegate to resolveLogUserLabel");
+  assert.ok(!/actor_name/.test(match[0]), "profileLabel must not read detail.actor_name itself");
   assert.ok(
-    !/return profile\?\.display_name \|\| profile\?\.email \|\| userId;/.test(fnBody),
+    !/return profile\?\.display_name \|\| profile\?\.email \|\| userId;/.test(match[0]),
     "profileLabel must not fall back to the raw userId",
   );
-  assert.ok(
-    /Unknown user/.test(fnBody),
-    "profileLabel must fall back to a non-identifying label",
-  );
+  // the non-identifying fallback is exercised behaviourally in testLabelFallbackOrder (resolveLogUserLabel)
   console.log("PASS testUnknownUserFallbackIsNotAUuid");
+}
+
+function testDeleteUserSummaryIsDistinct() {
+  const log = makeLog({ event_type: "delete", target_table: "profiles", detail: { action: "delete_user", target_name: "Target" } });
+  assert.equal(summarizeActivityLog(log, "Admin"), "Admin 刪除使用者 Target");
+  console.log("PASS testDeleteUserSummaryIsDistinct");
 }
 
 // Regression test for the review finding: page.tsx used a truthiness check
@@ -199,7 +205,42 @@ function testWorkplaceLookupResolvesNames() {
   console.log("PASS testWorkplaceLookupResolvesNames");
 }
 
+// R3-M2: any signed-in user can insert their own activity_logs row with arbitrary detail, so detail.actor_name is
+// only believable on the reserved delete-user event (which the database lets only delete_user_data() write).
+const PROFILES = [
+  { id: "admin-1", display_name: "Real Admin", email: "admin@x.test" },
+  { id: "user-1", display_name: "Mallory", email: "m@x.test" },
+];
+const HISTORY = [{ user_id: "gone-1", display_name: "Gone Person" }];
+function testForgedActorNameIsIgnoredOnOrdinaryEvents() {
+  for (const event of ["login", "create", "update", "delete"]) {
+    const log = makeLog({ user_id: "user-1", event_type: event, detail: { actor_name: "Real Admin", action: "delete_user", target_name: "Victim" } });
+    assert.equal(resolveLogUserLabel(log, PROFILES, HISTORY), "Mallory", `${event} must resolve by user_id`);
+  }
+  // reserved shape but wrong table / wrong action is still ordinary
+  assert.equal(resolveLogUserLabel(makeLog({ user_id: "user-1", event_type: "delete", target_table: "daily_status", detail: { action: "delete_user", actor_name: "Real Admin" } }), PROFILES, HISTORY), "Mallory");
+  assert.equal(resolveLogUserLabel(makeLog({ user_id: "user-1", event_type: "delete", target_table: "profiles", detail: { action: "other", actor_name: "Real Admin" } }), PROFILES, HISTORY), "Mallory");
+  assert.equal(isDeleteUserEvent(makeLog({ user_id: "user-1", event_type: "delete", target_table: "profiles", detail: { action: "other" } })), false);
+}
+function testReservedDeleteUserEventUsesSnapshot() {
+  const log = makeLog({ user_id: "admin-1", event_type: "delete", target_table: "profiles", detail: { action: "delete_user", actor_name: "Admin Snapshot", target_name: "Victim" } });
+  assert.equal(isDeleteUserEvent(log), true);
+  assert.equal(resolveLogUserLabel(log, PROFILES, HISTORY), "Admin Snapshot");
+  assert.equal(summarizeActivityLog(log, "Admin Snapshot"), "Admin Snapshot 刪除使用者 Victim");
+  // reserved event without a usable snapshot falls back to the id-based lookup
+  assert.equal(resolveLogUserLabel(makeLog({ user_id: "admin-1", event_type: "delete", target_table: "profiles", detail: { action: "delete_user" } }), PROFILES, HISTORY), "Real Admin");
+}
+function testLabelFallbackOrder() {
+  assert.equal(resolveLogUserLabel(makeLog({ user_id: "gone-1" }), PROFILES, HISTORY), "Gone Person");
+  assert.equal(resolveLogUserLabel(makeLog({ user_id: "nobody" }), PROFILES, HISTORY), "已刪除使用者");
+  assert.equal(resolveLogUserLabel(makeLog({ user_id: null }), PROFILES, HISTORY), "Unknown");
+  assert.equal(resolveLogUserLabel(makeLog({ user_id: "user-1" }), [{ id: "user-1", display_name: "", email: "m@x.test" }], HISTORY), "m@x.test");
+}
+
 const tests = [
+  testForgedActorNameIsIgnoredOnOrdinaryEvents,
+  testReservedDeleteUserEventUsesSnapshot,
+  testLabelFallbackOrder,
   testMalformedDetailShapesNeverThrow,
   testMalformedDetailAcrossEventTypes,
   testWellFormedUpdateStillWorks,
@@ -209,6 +250,7 @@ const tests = [
   testUuidShapedWorkDateIsNotEmbedded,
   testRedactUuidsStripsUuidSubstrings,
   testWorkplaceLookupResolvesNames,
+  testDeleteUserSummaryIsDistinct,
 ];
 
 let passed = 0;

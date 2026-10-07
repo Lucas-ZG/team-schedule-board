@@ -32,6 +32,33 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+// The reserved delete-user event: the database only lets delete_user_data() (SECURITY DEFINER) write event_type 'delete' +
+// target_table 'profiles' (guard_reserved_log_events), so only this shape carries a trustworthy detail.actor_name/target_name.
+// Every other row is client-written (any signed-in user may insert their own rows with arbitrary detail) and is never trusted.
+export function isDeleteUserEvent(log: Pick<ActivityLog, "event_type" | "target_table" | "detail">): boolean {
+  return log.event_type === "delete" && log.target_table === "profiles" && isPlainObject(log.detail) && log.detail.action === "delete_user";
+}
+
+type LabelProfile = { id: string; display_name: string | null; email: string | null };
+type LabelHistory = { user_id: string; display_name: string };
+
+// Name shown for the user of a Logs row. The actor snapshot inside detail is used ONLY for the reserved delete-user event;
+// all other rows resolve by user_id (current profile, then the history-label table). Never falls back to the raw id.
+export function resolveLogUserLabel(
+  log: Pick<ActivityLog, "user_id" | "event_type" | "target_table" | "detail">,
+  profiles: LabelProfile[],
+  historyLabels: LabelHistory[],
+): string {
+  if (!log.user_id) {
+    return "Unknown";
+  }
+  const snapshot = isDeleteUserEvent(log) && isPlainObject(log.detail) && typeof log.detail.actor_name === "string" && log.detail.actor_name
+    ? log.detail.actor_name : null;
+  const profile = profiles.find((entry) => entry.id === log.user_id);
+  const history = historyLabels.find((entry) => entry.user_id === log.user_id);
+  return snapshot || profile?.display_name || profile?.email || history?.display_name || "已刪除使用者";
+}
+
 const UUID_PATTERN =
   /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
@@ -215,6 +242,11 @@ function summarize(
 ): string {
   if (log.event_type === "login") {
     return `${userLabel} logged in`;
+  }
+
+  if (isDeleteUserEvent(log) && isPlainObject(log.detail)) {
+    const target = typeof log.detail.target_name === "string" ? log.detail.target_name : "使用者";
+    return `${userLabel} 刪除使用者 ${target}`;
   }
 
   const detail = asDailyStatusDetail(log.detail);

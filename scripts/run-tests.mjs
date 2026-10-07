@@ -8,6 +8,9 @@ import { spawnSync } from "node:child_process";
 const suites = [
   "src/lib/activityLogSummary.test.mjs",
   "supabase/functions/create-user/handler.test.mjs",
+  "supabase/functions/delete-user/handler.test.mjs",
+  "src/lib/deleteUserApi.test.mjs",
+  "src/lib/memberLabel.test.mjs",
 ];
 
 let failed = false;

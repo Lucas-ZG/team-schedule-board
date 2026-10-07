@@ -10,10 +10,11 @@ import {
 import {
   buildWorkplaceLookup,
   redactUuids,
+  resolveLogUserLabel,
   summarizeActivityLog,
   type WorkplaceLookup,
 } from "@/lib/activityLogSummary";
-import type { ActivityLog, Profile } from "@/types/database";
+import type { ActivityLog, Profile, UserHistoryLabel } from "@/types/database";
 
 const PAGE_SIZE = 50;
 
@@ -28,6 +29,7 @@ export default function AdminLogsPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [historyLabels, setHistoryLabels] = useState<UserHistoryLabel[]>([]);
   // null = still checking, false = confirmed not admin, true = confirmed admin
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [logs, setLogs] = useState<ActivityLog[]>([]);
@@ -97,6 +99,11 @@ export default function AdminLogsPage() {
       });
   }, [isAdmin]);
 
+  useEffect(() => {
+    if (!isAdmin) return;
+    getSupabaseClient().from("user_history_labels").select("*").then(({ data }) => setHistoryLabels(data || []));
+  }, [isAdmin]);
+
   function toggleExpanded(logId: string) {
     setExpandedLogIds((current) => {
       const next = new Set(current);
@@ -141,15 +148,9 @@ export default function AdminLogsPage() {
     loadLogs();
   }, [loadLogs]);
 
-  function profileLabel(userId: string | null) {
-    if (!userId) {
-      return "Unknown";
-    }
-    const profile = profiles.find((entry) => entry.id === userId);
-    // Never fall back to the raw id -- it's a UUID, and this label also
-    // gets embedded into the Detail column's summary sentence, which must
-    // stay free of ids even when a profile can't be resolved.
-    return profile?.display_name || profile?.email || "Unknown user";
+  function profileLabel(log: ActivityLog) {
+    // The name snapshot inside detail is client-writable; resolveLogUserLabel only trusts it on the reserved delete-user event.
+    return resolveLogUserLabel(log, profiles, historyLabels);
   }
 
   if (isAdmin === null && error) {
@@ -259,13 +260,13 @@ export default function AdminLogsPage() {
                 logs.map((log) => {
                   const summary = summarizeActivityLog(
                     log,
-                    profileLabel(log.user_id),
+                    profileLabel(log),
                     workplaces,
                   );
                   return (
                   <tr key={log.id}>
                     <td className="px-4 py-2 text-slate-800">
-                      {profileLabel(log.user_id)}
+                      {profileLabel(log)}
                     </td>
                     <td className="px-4 py-2 text-slate-800">
                       {EVENT_LABEL[log.event_type] || log.event_type}

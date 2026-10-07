@@ -172,6 +172,7 @@ Team Schedule Board 是一套需登入使用的團隊月曆系統，用於管理
 - 僅管理員可匯出排班及加班 Excel。
 - 僅管理員可查看使用紀錄頁面，記錄登入與排班/加班/請假紀錄的新增／修改／刪除事件。
 - 僅管理員可透過 Supabase Edge Function 建立新使用者帳號（Email、密碼、角色）。
+- 僅管理員可透過 Header 的 Delete User 功能刪除 `user` 或 `viewer`；刪除後今天與過去的排班及既有 Logs 會保留並標示「名稱（已刪除）」，未來排班會刪除。
 - Header 右上角顯示版本徽章，版號來源為 `package.json`。
 - 可透過 Profile 排序值控制成員顯示順序。
 - 使用 Email／Password 登入並分為三種角色：
@@ -231,6 +232,8 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_supabase_publishable_key
 9. `migration_20260821_remove_entered_by_lock.sql`
 10. `migration_20260821_restore_daily_status_insert_policy.sql`
 
+`supabase/migrations/20261003000000_production_baseline.sql` 與 `supabase/seed.sql` 只供本機測試 stack 重建，不是 production 的權威 schema。禁止對 production 執行 `supabase db push` 或 `supabase db reset --linked`；production 的 Delete User 結構只能依部署 runbook，由管理者在 SQL Editor 手動套用任務資料夾內經審查的 SQL。
+
 `schema.sql` 已支援 `admin`、`user` 與 `viewer`。`migration_add_viewer_role.sql` 僅供較早建立、尚未包含 viewer Constraint 的既有資料庫使用。舊版 `add_anon_read.sql` 不應套用至新環境，因為目前程式要求使用者登入，最新安全性 Migration 也會撤銷匿名存取。
 
 `/admin/create-user` 頁面會呼叫 `create-user` Supabase Edge Function（`supabase/functions/create-user`），需要用 Supabase CLI 部署，並在 Supabase 專案後台設定 `SUPABASE_SERVICE_ROLE_KEY` secret（絕不可放進 `.env.local` 或任何前端可讀的檔案）：
@@ -239,6 +242,7 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_supabase_publishable_key
 supabase login
 supabase link --project-ref your-project-ref
 supabase functions deploy create-user
+supabase functions deploy delete-user
 supabase secrets set SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 ```
 
@@ -264,6 +268,7 @@ npm run start
 4. 登入後選擇月曆日期，管理符合權限的每日資料。
 5. 使用多選模式將相同狀態套用至多個日期。
 6. 管理員可設定加班週期，並匯出排班或加班 Excel。
+7. 管理員可從 Header 的垃圾桶按鈕預覽刪除影響，輸入完全一致的帳號名稱後刪除 user 或 viewer。禁止刪除自己或 admin。
 
 主要資料表：
 
@@ -274,10 +279,13 @@ npm run start
 | `daily_status` | 日期、工作地點、備註、加班、請假及建立者。 |
 | `ot_periods` | 手動設定或自動計算的加班日期範圍。 |
 | `activity_logs` | 僅管理員可讀、只能新增不能修改的登入與編輯紀錄。 |
+| `user_history_labels` | 保存已刪帳號的名稱快照，供歷史月曆、Logs 與匯出顯示。 |
 
 管理員可查看 `/admin/logs`，了解誰在何時登入、以及誰在何時新增／修改／刪除了排班、加班或請假紀錄。Detail 欄位預設顯示一句由 `src/lib/activityLogSummary.ts` 產生的白話摘要（例如「加班時數從 0 改為 2.5 小時」），只列出實際有變化的欄位，且預設隱藏紀錄 id／工作地點 id 等 UUID；點擊「查看詳細」可在原地展開完整原始 JSON 供查證。此功能定位為使用紀錄，非防竄改的安全稽核機制：紀錄是在登入或編輯成功後由前端呼叫寫入，若有人繞過此應用程式直接呼叫 Supabase API，該次操作不會被記錄。此資料表的 RLS policy 只允許管理員 `SELECT`、允許登入使用者新增屬於自己的紀錄，任何角色皆不可 `UPDATE`／`DELETE`。
 
 管理員可查看 `/admin/create-user`，直接在應用程式內建立新帳號（Email、密碼、角色）。該頁面呼叫 `create-user` Edge Function，Edge Function 會獨立驗證呼叫者身分（透過呼叫者本人的 JWT 查詢 `profiles.role`），確認是管理員才在伺服器端使用 service role key 執行，前端頁面只是隱藏連結並將非管理員導回首頁，並非真正的安全防線。
+
+Delete User 採「停用帳號 → 交易式清理資料 → 硬刪 Auth 帳號」流程。若畫面顯示帳號已停用且資料已清理，請保留該狀態並按「重試完成刪除」；若仍無法完成，可由管理者在 Supabase Dashboard 手動刪除該 Auth 帳號。日常維運應一律從 App 執行刪除，避免直接從 Dashboard 刪除而略過未來排班清理與刪除事件紀錄。若 modal 顯示「無法確認資料清理是否完成：帳號仍為停用狀態」，代表帳號保持停用、資料可能尚未清理：確認輸入名稱後按「重試刪除」即可；顯示「暫時無法確認帳號狀態」時請稍後再試，系統不會在結果不明時自動解除停用。預覽的未來／休假／保留筆數由資料庫端精確計算（不受 API 1000 筆上限影響），休假筆數以 `workplace_ids` 為準（空陣列才退回單一 `workplace_id`，每筆只算一次）；任一數字在確認後變動，刪除會被拒絕並要求重新確認。
 
 ### 注意事項
 
@@ -290,6 +298,15 @@ npm run start
 ---
 
 ## Changelog
+
+### 2026-10-06
+
+- Delete User 第二輪修正：已刪使用者的歷史排班與 Logs 在資料庫層完全唯讀（含 admin，改 `user_id`、改欄位、刪除、改掛到已刪者名下都會被擋）；Auth 查詢故障不再被誤判為「帳號不存在」；資料庫回應遺失時不再自動解除停用，改為查詢清理狀態並可重試；前端能顯示後端錯誤並處理 409 與逾時；預覽筆數改由資料庫精確計算並納入休假筆數；刪除成功但畫面更新失敗時會明確提示；有效帳號 `display_name` 為空時不再被標為「（已刪除）」。部署時請使用更新後的 `sql/02_delete_user_production.sql` 與 `delete-user` Edge Function。
+- Delete User 第三輪修正：刪除結果不明時（逾時、網路錯誤、`AUTH_DELETE_PENDING`、`DELETE_STATE_UNKNOWN`）前端一律先查詢帳號狀態再決定畫面，查詢也失敗時顯示「暫時無法確認」並提供「重新查詢」；連續刪除時，新操作開始會清除前一次的成功提示。Logs 的「刪除使用者」事件改為保留事件類型（`event_type='delete'`＋`target_table='profiles'`），只有刪除函式能寫入；Logs 頁只對該類型採用內含的執行者與目標名稱快照，其他事件一律依 `user_id` 顯示真實名稱，無法再用 `detail` 偽造執行者。部署時請使用更新後的 `sql/02_delete_user_production.sql`（預檢會要求 production 沒有同型的舊 Logs 列）與 `delete-user` Edge Function。
+
+### 2026-10-03
+
+- 新增 admin-only Delete User：只允許刪除 user／viewer，禁止刪除自己與 admin，並要求輸入完全一致的顯示名稱。刪除時移除未來排班，保留今天與過去排班及既有 Logs；歷史月曆、Logs、一般匯出與 OT 匯出以「名稱（已刪除）」顯示。刪除事件另寫入一筆 append-only Log，硬刪 Auth 失敗時可從 modal 重試完成。部署前提：`profiles` 權限緊急修補必須仍有效（`authenticated` 對 `profiles` 僅 SELECT、`profiles_guard_role` 觸發器存在），細節見部署 runbook。
 
 ### 2026-08-21
 
