@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { formatMemberName } from "@/lib/displayName";
 
 type HeaderProps = {
   userLabel: string;
@@ -50,7 +51,7 @@ export default function Header({ userLabel, onLogout, isAdmin, onDeleteUser }: H
             </Link>
           ) : null}
           <span className="hidden max-w-[240px] truncate text-sm text-slate-600 sm:inline">
-            {userLabel}
+            {formatMemberName(userLabel)}
           </span>
           <button
             type="button"

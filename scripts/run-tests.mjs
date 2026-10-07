@@ -11,6 +11,8 @@ const suites = [
   "supabase/functions/delete-user/handler.test.mjs",
   "src/lib/deleteUserApi.test.mjs",
   "src/lib/memberLabel.test.mjs",
+  "src/lib/displayName.test.mjs",
+  "src/lib/appVersion.test.mjs",
 ];
 
 let failed = false;

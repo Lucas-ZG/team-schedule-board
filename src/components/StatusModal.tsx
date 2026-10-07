@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { WINDOW_LOCK_MESSAGE, isWithinSelfEditWindow } from "@/lib/calendar";
+import { formatMemberName } from "@/lib/displayName";
 import { memberDisplayName, resolveStatusMemberName } from "@/lib/memberLabel";
 import type { CalendarStatus, Profile, Workplace } from "@/types/database";
 
@@ -38,7 +39,7 @@ function memberLabel(profile?: Profile) {
 
 function statusMemberLabel(status: CalendarStatus) {
   const name = resolveStatusMemberName(status);
-  return name === "Unknown" ? "Unknown member" : name;
+  return name === "Unknown" ? "Unknown member" : formatMemberName(name);
 }
 
 function resolveStatusWorkplaces(
@@ -303,7 +304,7 @@ export default function StatusModal({
                   ) : null}
                   {sortedProfiles.map((profile) => (
                     <option key={profile.id} value={profile.id}>
-                      {memberLabel(profile)}
+                      {formatMemberName(memberLabel(profile))}
                     </option>
                   ))}
                 </select>

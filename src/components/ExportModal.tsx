@@ -2,6 +2,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import * as XLSX from "xlsx-js-style";
+import { formatMemberName } from "@/lib/displayName";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 import { firstOfSeoulMonth, lastOfSeoulMonth } from "@/lib/timezone";
 import type { DailyStatus, Profile, Workplace } from "@/types/database";
@@ -186,7 +187,7 @@ export default function ExportModal({ onClose }: ExportModalProps) {
       // Row 1..N: date label + workplace text.
       const headerRow: string[] = [];
       sortedProfiles.forEach((profile) => {
-        headerRow.push(memberLabel(profile));
+        headerRow.push(formatMemberName(memberLabel(profile)));
         headerRow.push("");
       });
 

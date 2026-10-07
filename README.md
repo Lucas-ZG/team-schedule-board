@@ -20,7 +20,8 @@ Team Schedule Board is an authenticated calendar application for managing team w
 - Administrator-only schedule and overtime Excel exports.
 - Administrator-only activity log page recording logins and daily-status (shift/OT/leave) create/update/delete events.
 - Administrator-only page for creating new user accounts (email, password, role) via a Supabase Edge Function.
-- Header badge showing the running app version, sourced from `package.json`.
+- Header badge showing the running app version (currently `v0.2.0`). `package.json`'s `version` is the single source: `next.config.ts` injects only that string as `NEXT_PUBLIC_APP_VERSION` at build time (restart `npm run dev` or rebuild after changing it).
+- Member names derived from an email (for example `ian.hong`) are displayed capitalized (`Ian Hong`) everywhere a name is shown; this is display-only -- the value stored in the database is unchanged (see "Name display rule" below).
 - Ordered member display through profile sort values.
 - Email/password authentication with three roles:
 
@@ -144,6 +145,14 @@ caller's own JWT and `profiles.role`) before using the service-role key on
 the server side -- the page itself only hides the link and redirects
 non-admins, it is not the security boundary.
 
+### Name display rule
+
+`formatDisplayName()` (`src/lib/displayName.ts`) is applied only at render/export time: the name is split on `.` and `_` (not `-` or spaces), empty segments are dropped, and only the first character of each segment is upper-cased; segments are joined with one space (`ian.hong` -> `Ian Hong`, `Lucas.ZG` -> `Lucas ZG`, `test_user.one` -> `Test User One`). Empty values, names containing `@` (an email fallback) and UUIDs are returned unchanged. Sorting, matching, lookups and the stored value always use the original name. Deleted users are shown as `Formatted Name（已刪除）` wherever a name stands for a user (calendar, Logs User column and other event summaries, exports, OT/leave summaries, StatusModal); the single exception is the target name inside the "deleted user" Logs event ("Admin 刪除使用者 Gone Person"), which already says the person was deleted. In the Delete User dialog the confirmation text stays exactly the stored name (it is what the backend compares against) and is shown in its own highlighted box.
+
+### Versioning
+
+`package.json` `version` is the only place to change the version (also keep the top-level `version` fields of `package-lock.json` in sync). Rule of thumb: a new user-visible feature or clearly changed behavior bumps the minor version (0.x.0); bug fixes, display, text, internal cleanup and docs bump the patch version (0.x.y); 1.0.0 is decided by the project owner.
+
 ### Notes
 
 - The application has no anonymous public calendar route; all roles must sign in.
@@ -173,7 +182,8 @@ Team Schedule Board 是一套需登入使用的團隊月曆系統，用於管理
 - 僅管理員可查看使用紀錄頁面，記錄登入與排班/加班/請假紀錄的新增／修改／刪除事件。
 - 僅管理員可透過 Supabase Edge Function 建立新使用者帳號（Email、密碼、角色）。
 - 僅管理員可透過 Header 的 Delete User 功能刪除 `user` 或 `viewer`；刪除後今天與過去的排班及既有 Logs 會保留並標示「名稱（已刪除）」，未來排班會刪除。
-- Header 右上角顯示版本徽章，版號來源為 `package.json`。
+- Header 右上角顯示版本徽章（目前 `v0.2.0`），版號單一來源為 `package.json` 的 `version`：`next.config.ts` 在建置時只注入該版本字串（`NEXT_PUBLIC_APP_VERSION`），改版號後需重啟 `npm run dev` 或重新 build。
+- 由 email 衍生的成員名稱（例如 `ian.hong`）在所有顯示名稱的地方以首字母大寫顯示（`Ian Hong`）；僅影響顯示，資料庫儲存值不變（見下方「名稱顯示規則」）。
 - 可透過 Profile 排序值控制成員顯示順序。
 - 使用 Email／Password 登入並分為三種角色：
 
@@ -287,6 +297,14 @@ npm run start
 
 Delete User 採「停用帳號 → 交易式清理資料 → 硬刪 Auth 帳號」流程。若畫面顯示帳號已停用且資料已清理，請保留該狀態並按「重試完成刪除」；若仍無法完成，可由管理者在 Supabase Dashboard 手動刪除該 Auth 帳號。日常維運應一律從 App 執行刪除，避免直接從 Dashboard 刪除而略過未來排班清理與刪除事件紀錄。若 modal 顯示「無法確認資料清理是否完成：帳號仍為停用狀態」，代表帳號保持停用、資料可能尚未清理：確認輸入名稱後按「重試刪除」即可；顯示「暫時無法確認帳號狀態」時請稍後再試，系統不會在結果不明時自動解除停用。預覽的未來／休假／保留筆數由資料庫端精確計算（不受 API 1000 筆上限影響），休假筆數以 `workplace_ids` 為準（空陣列才退回單一 `workplace_id`，每筆只算一次）；任一數字在確認後變動，刪除會被拒絕並要求重新確認。
 
+### 名稱顯示規則
+
+`formatDisplayName()`（`src/lib/displayName.ts`）只在「渲染或匯出」時套用：名稱依 `.` 與 `_` 切段（連字號與空白不切），丟棄空段，每段只把第一個字元轉大寫，段與段以單一空白連接（`ian.hong` → `Ian Hong`、`Lucas.ZG` → `Lucas ZG`、`test_user.one` → `Test User One`）。空值、含 `@` 的字串（名稱 fallback 為 email）與 UUID 原樣顯示。排序、比對、查詢與儲存值一律使用原始名稱；已刪除使用者在所有「名稱代表使用者」的位置（月曆、Logs 的 User 欄與其他事件摘要、匯出檔、OT／休假摘要、StatusModal）顯示為「格式化名稱（已刪除）」；唯一例外是 Logs「刪除使用者」事件摘要中的被刪者名稱（「Admin 刪除使用者 Gone Person」），因為該事件本身已表明此人被刪除，不再加後綴。Delete User 對話框的確認文字維持與資料庫完全相同的原始名稱（後端以此比對），並以獨立的醒目區塊顯示。
+
+### 版本規則
+
+版本號只在 `package.json` 的 `version` 修改（`package-lock.json` 最上層的 version 同步更新）。規則：新增使用者可見功能或明顯改變行為升中版號（0.x.0）；修 bug、顯示、文字、內部整理、文件升小版號（0.x.y）；升 1.0.0 由專案負責人決定。
+
 ### 注意事項
 
 - 目前程式沒有匿名公開月曆頁面，所有角色都必須登入。
@@ -299,12 +317,19 @@ Delete User 採「停用帳號 → 交易式清理資料 → 硬刪 Auth 帳號�
 
 ## Changelog
 
-### 2026-10-06
+### v0.2.0 (2026-10-07)
+
+- 版本升為 `0.2.0`（`package.json` 單一來源，Header 徽章顯示 `v0.2.0`）。本版內容：
+  - **Delete User**（新功能，詳見下方 2026-10-03 與 2026-10-06 條目）：admin 可刪除 user／viewer，今天與過去的排班和既有 Logs 保留並標示「名稱（已刪除）」，未來排班刪除；刪除前須輸入與資料庫完全一致的名稱。
+  - **OT 修正**：OT 相關查詢失敗不再被靜默吞掉，會在頁面顯示範圍明確的警告；工作地點顯示順序更新（見 2026-08-24 條目）。
+  - **顯示名稱首字母大寫**：由 email 衍生的名稱（例如 `ian.hong`）在月曆、StatusModal、Header、Logs、Delete User 清單、兩份匯出檔與 OT 摘要顯示為 `Ian Hong`；只改顯示，資料庫值、排序與比對一律使用原始名稱；Delete User 的確認文字維持原始名稱並以醒目區塊顯示；Logs 內已刪除使用者的紀錄與月曆一樣標示「（已刪除）」。
+
+### 2026-10-06 (v0.2.0)
 
 - Delete User 第二輪修正：已刪使用者的歷史排班與 Logs 在資料庫層完全唯讀（含 admin，改 `user_id`、改欄位、刪除、改掛到已刪者名下都會被擋）；Auth 查詢故障不再被誤判為「帳號不存在」；資料庫回應遺失時不再自動解除停用，改為查詢清理狀態並可重試；前端能顯示後端錯誤並處理 409 與逾時；預覽筆數改由資料庫精確計算並納入休假筆數；刪除成功但畫面更新失敗時會明確提示；有效帳號 `display_name` 為空時不再被標為「（已刪除）」。部署時請使用更新後的 `sql/02_delete_user_production.sql` 與 `delete-user` Edge Function。
 - Delete User 第三輪修正：刪除結果不明時（逾時、網路錯誤、`AUTH_DELETE_PENDING`、`DELETE_STATE_UNKNOWN`）前端一律先查詢帳號狀態再決定畫面，查詢也失敗時顯示「暫時無法確認」並提供「重新查詢」；連續刪除時，新操作開始會清除前一次的成功提示。Logs 的「刪除使用者」事件改為保留事件類型（`event_type='delete'`＋`target_table='profiles'`），只有刪除函式能寫入；Logs 頁只對該類型採用內含的執行者與目標名稱快照，其他事件一律依 `user_id` 顯示真實名稱，無法再用 `detail` 偽造執行者。部署時請使用更新後的 `sql/02_delete_user_production.sql`（預檢會要求 production 沒有同型的舊 Logs 列）與 `delete-user` Edge Function。
 
-### 2026-10-03
+### 2026-10-03 (v0.2.0)
 
 - 新增 admin-only Delete User：只允許刪除 user／viewer，禁止刪除自己與 admin，並要求輸入完全一致的顯示名稱。刪除時移除未來排班，保留今天與過去排班及既有 Logs；歷史月曆、Logs、一般匯出與 OT 匯出以「名稱（已刪除）」顯示。刪除事件另寫入一筆 append-only Log，硬刪 Auth 失敗時可從 modal 重試完成。部署前提：`profiles` 權限緊急修補必須仍有效（`authenticated` 對 `profiles` 僅 SELECT、`profiles_guard_role` 觸發器存在），細節見部署 runbook。
 

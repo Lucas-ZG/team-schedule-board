@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import * as XLSX from "xlsx-js-style";
+import { formatMemberName } from "@/lib/displayName";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 import type { DailyStatus, Profile } from "@/types/database";
 
@@ -148,7 +149,7 @@ function buildOTSheet(
     const nameAddr = XLSX.utils.encode_cell({ r: 0, c: dateCol });
     ws[nameAddr] = {
       t: "s",
-      v: member.profile.display_name || member.profile.email || "Unknown",
+      v: formatMemberName(member.profile.display_name || member.profile.email || "Unknown"),
       s: {
         alignment: centerAlign,
         border: baseBorder,
@@ -401,7 +402,7 @@ export default function OTExportModal({
             ) : (
               <p className="mt-1 text-slate-500">
                 {previewMembers
-                  .map((m) => m.display_name || m.email)
+                  .map((m) => formatMemberName(m.display_name || m.email))
                   .join(" · ")}
               </p>
             )}

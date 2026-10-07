@@ -5,6 +5,7 @@ import {
   DeleteUserApiError, classifyFailure, interpretStatus, messageForCode, requiresStatusCheck, toDeleteUserError,
   type DeleteUserPreview, type DeleteUserStatus,
 } from "@/lib/deleteUserApi";
+import { formatMemberName } from "@/lib/displayName";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 
 type Target = { id: string; name: string; role: "user" | "viewer" };
@@ -138,11 +139,11 @@ export default function DeleteUserModal({ onClose, onDeleted, onStart }: {
           <>
             <label className="mt-5 block text-sm font-semibold text-slate-700">帳號</label>
             <select value={targetId} onChange={(e) => void selectTarget(e.target.value)} disabled={loading || deleting} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
-              <option value="">請選擇帳號</option>{targets.map((target) => <option key={target.id} value={target.id}>{target.name} · {target.role}</option>)}
+              <option value="">請選擇帳號</option>{targets.map((target) => <option key={target.id} value={target.id}>{formatMemberName(target.name)} · {target.role}</option>)}
             </select>
             {loading ? <p className="mt-4 text-sm text-slate-500">載入中…</p> : null}
             {preview ? <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><p>將刪除未來排班：{preview.futureCount} 筆（其中休假 {preview.futureDayoffCount} 筆）</p><p>將保留今天與過去：{preview.retainedCount} 筆</p><p className="mt-1 text-xs">截止日：{preview.cutoffDate}（Asia/Seoul）</p></div> : null}
-            {preview && !retryingCleaned && !needsStatusCheck ? <><label className="mt-4 block text-sm font-semibold text-slate-700">輸入「{preview.confirmName}」確認</label><input value={confirmName} onChange={(e) => setConfirmName(e.target.value)} disabled={deleting} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" /></> : null}
+            {preview && !retryingCleaned && !needsStatusCheck ? <><p className="mt-4 text-xs text-slate-500">請原樣輸入下方紅框內的文字（與資料庫中的名稱完全一致，不會自動轉成首字母大寫）：</p><label data-testid="confirm-text" className="mt-1 block break-all rounded-md border border-red-200 bg-red-50 px-3 py-2 font-mono text-sm font-semibold text-red-800">輸入「<span data-testid="confirm-name" className="select-all">{preview.confirmName}</span>」確認</label><input value={confirmName} onChange={(e) => setConfirmName(e.target.value)} disabled={deleting} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" /></> : null}
             {error ? <div role="alert" className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
             <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onClose} disabled={deleting} className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700">取消</button><button type="button" onClick={() => void submit()} disabled={!preview || deleting || (!retryingCleaned && !needsStatusCheck && confirmName !== preview.confirmName)} className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-red-300">{buttonLabel}</button></div>
           </>

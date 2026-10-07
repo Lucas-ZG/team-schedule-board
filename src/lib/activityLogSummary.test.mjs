@@ -18,6 +18,7 @@ import {
   buildWorkplaceLookup,
   redactUuids,
   resolveLogUserLabel,
+  resolveDeleteUserTargetName,
   isDeleteUserEvent,
 } from "./activityLogSummary.ts";
 
@@ -230,8 +231,33 @@ function testReservedDeleteUserEventUsesSnapshot() {
   // reserved event without a usable snapshot falls back to the id-based lookup
   assert.equal(resolveLogUserLabel(makeLog({ user_id: "admin-1", event_type: "delete", target_table: "profiles", detail: { action: "delete_user" } }), PROFILES, HISTORY), "Real Admin");
 }
+// R2-M1 marker rule: a name that stands for a user identity carries "（已刪除）" once the user is deleted; the ONLY exception is the
+// target name inside the delete-user event summary ("Admin 刪除使用者 Gone Person"), because that event already says the person was deleted.
+function testDeletedMarkerRule() {
+  const history = [{ user_id: "gone-1", display_name: "gone.person", deleted_at: "2026-10-01T00:00:00Z" }];
+  const fmt = (name) => name.replace(/(^|[._])([a-z])/g, (_, sep, ch) => (sep ? " " : "") + ch.toUpperCase());
+  // (a) identity positions: User column label and any summary built from it keep the marker
+  const label = resolveLogUserLabel(makeLog({ user_id: "gone-1" }), PROFILES, history);
+  assert.equal(label, "gone.person（已刪除）");
+  assert.equal(summarizeActivityLog(makeLog({ user_id: "gone-1", event_type: "login" }), label), "gone.person（已刪除） logged in");
+  assert.match(summarizeActivityLog(makeLog({ user_id: "gone-1", event_type: "create", detail: { work_date: "2026-10-01", after: {} } }), label), /^gone\.person（已刪除） created a schedule record/);
+  // (b) the exception: the delete-user event names its target without the marker, even though the target is deleted
+  const event = makeLog({ user_id: "admin-1", event_type: "delete", target_table: "profiles", detail: { action: "delete_user", actor_name: "Real Admin", target_name: "gone.person" } });
+  assert.equal(resolveDeleteUserTargetName(event, fmt), "Gone Person");
+  assert.equal(summarizeActivityLog(event, "Real Admin", undefined, fmt), "Real Admin 刪除使用者 Gone Person");
+  assert.ok(!summarizeActivityLog(event, "Real Admin", undefined, fmt).includes("（已刪除）"));
+  // untrusted shapes (not the reserved event) yield no target name
+  assert.equal(resolveDeleteUserTargetName(makeLog({ user_id: "admin-1", event_type: "delete", target_table: "daily_status", detail: { action: "delete_user", target_name: "x" } }), fmt), null);
+}
 function testLabelFallbackOrder() {
   assert.equal(resolveLogUserLabel(makeLog({ user_id: "gone-1" }), PROFILES, HISTORY), "Gone Person");
+  // a deleted user (profile gone, history label marked deleted) carries the same marker as the calendar
+  assert.equal(resolveLogUserLabel(makeLog({ user_id: "gone-1" }), PROFILES, [{ user_id: "gone-1", display_name: "ian.hong", deleted_at: "2026-10-01T00:00:00Z" }]), "ian.hong（已刪除）");
+  assert.equal(resolveLogUserLabel(makeLog({ user_id: "gone-1" }), PROFILES, [{ user_id: "gone-1", display_name: "ian.hong", deleted_at: null }]), "ian.hong");
+  // names inside detail pass through the optional display formatter; without one they stay raw
+  const deleteEvent = makeLog({ user_id: "admin-1", event_type: "delete", target_table: "profiles", detail: { action: "delete_user", target_name: "ian.hong" } });
+  assert.equal(summarizeActivityLog(deleteEvent, "Admin"), "Admin 刪除使用者 ian.hong");
+  assert.equal(summarizeActivityLog(deleteEvent, "Admin", undefined, (name) => name.toUpperCase()), "Admin 刪除使用者 IAN.HONG");
   assert.equal(resolveLogUserLabel(makeLog({ user_id: "nobody" }), PROFILES, HISTORY), "已刪除使用者");
   assert.equal(resolveLogUserLabel(makeLog({ user_id: null }), PROFILES, HISTORY), "Unknown");
   assert.equal(resolveLogUserLabel(makeLog({ user_id: "user-1" }), [{ id: "user-1", display_name: "", email: "m@x.test" }], HISTORY), "m@x.test");
@@ -241,6 +267,7 @@ const tests = [
   testForgedActorNameIsIgnoredOnOrdinaryEvents,
   testReservedDeleteUserEventUsesSnapshot,
   testLabelFallbackOrder,
+  testDeletedMarkerRule,
   testMalformedDetailShapesNeverThrow,
   testMalformedDetailAcrossEventTypes,
   testWellFormedUpdateStillWorks,

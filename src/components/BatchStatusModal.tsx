@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { formatMemberName } from "@/lib/displayName";
 import type { Profile, Workplace } from "@/types/database";
 
 type BatchStatusModalProps = {
@@ -152,7 +153,7 @@ export default function BatchStatusModal({
               >
                 {sortedProfiles.map((profile) => (
                   <option key={profile.id} value={profile.id}>
-                    {memberLabel(profile)}
+                    {formatMemberName(memberLabel(profile))}
                   </option>
                 ))}
               </select>

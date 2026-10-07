@@ -27,6 +27,7 @@ import {
   getSupabaseConfigError,
 } from "@/lib/supabaseClient";
 import { logActivity } from "@/lib/activityLog";
+import { formatMemberName } from "@/lib/displayName";
 import {
   firstOfSeoulMonth,
   getKoreanDateParts,
@@ -1025,7 +1026,7 @@ export default function Calendar() {
                 <ul className="mt-1 space-y-0.5 text-sm text-amber-900">
                   {prevOtSummary.map((entry) => (
                     <li key={entry.userId} className="font-medium">
-                      <span>{entry.label}</span>
+                      <span>{formatMemberName(entry.label)}</span>
                       <span className="text-amber-700"> : {entry.hours.toFixed(1)}h</span>
                     </li>
                   ))}
@@ -1047,7 +1048,7 @@ export default function Calendar() {
                 <ul className="mt-1 space-y-0.5 text-sm text-amber-900">
                   {otSummary.map((entry) => (
                     <li key={entry.userId} className="font-medium">
-                      <span>{entry.label}</span>
+                      <span>{formatMemberName(entry.label)}</span>
                       <span className="text-amber-700"> : {entry.hours.toFixed(1)}h</span>
                     </li>
                   ))}
@@ -1077,7 +1078,7 @@ export default function Calendar() {
               <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-emerald-900">
                 {leaveSummary.map((entry) => (
                   <li key={entry.userId} className="font-medium">
-                    <span>{entry.label}</span>
+                    <span>{formatMemberName(entry.label)}</span>
                     <span className="text-emerald-700"> : {formatLeaveTotal(entry.hours)}</span>
                   </li>
                 ))}
