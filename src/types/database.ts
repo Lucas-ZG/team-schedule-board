@@ -74,7 +74,6 @@ export type Database = {
           overtime_enabled: boolean;
           overtime_hours: number;
           leave_hours: number;
-          entered_by: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -88,7 +87,6 @@ export type Database = {
           overtime_enabled?: boolean;
           overtime_hours?: number;
           leave_hours?: number;
-          entered_by?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -102,7 +100,6 @@ export type Database = {
           overtime_enabled?: boolean;
           overtime_hours?: number;
           leave_hours?: number;
-          entered_by?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -111,8 +108,8 @@ export type Database = {
             foreignKeyName: "daily_status_user_id_fkey";
             columns: ["user_id"];
             isOneToOne: false;
-            referencedRelation: "profiles";
-            referencedColumns: ["id"];
+            referencedRelation: "user_history_labels";
+            referencedColumns: ["user_id"];
           },
           {
             foreignKeyName: "daily_status_workplace_id_fkey";
@@ -186,10 +183,16 @@ export type Database = {
             foreignKeyName: "activity_logs_user_id_fkey";
             columns: ["user_id"];
             isOneToOne: false;
-            referencedRelation: "profiles";
-            referencedColumns: ["id"];
+            referencedRelation: "user_history_labels";
+            referencedColumns: ["user_id"];
           },
         ];
+      };
+      user_history_labels: {
+        Row: { user_id: string; display_name: string; deleted_at: string | null };
+        Insert: { user_id: string; display_name: string; deleted_at?: string | null };
+        Update: { display_name?: string; deleted_at?: string | null };
+        Relationships: [];
       };
     };
     Views: Record<string, never>;
@@ -204,9 +207,11 @@ export type Workplace = Database["public"]["Tables"]["workplaces"]["Row"];
 export type DailyStatus = Database["public"]["Tables"]["daily_status"]["Row"];
 export type OtPeriod = Database["public"]["Tables"]["ot_periods"]["Row"];
 export type ActivityLog = Database["public"]["Tables"]["activity_logs"]["Row"];
+export type UserHistoryLabel = Database["public"]["Tables"]["user_history_labels"]["Row"];
 
 export type CalendarStatus = DailyStatus & {
   profile?: Profile;
+  historyLabel?: UserHistoryLabel;
   workplace?: Workplace;
   workplaces?: Workplace[];
 };

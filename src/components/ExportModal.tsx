@@ -121,8 +121,9 @@ export default function ExportModal({ onClose }: ExportModalProps) {
     try {
       const supabase = getSupabaseClient();
 
-      const [profilesResult, workplacesResult, statusesResult] = await Promise.all([
+      const [profilesResult, historyResult, workplacesResult, statusesResult] = await Promise.all([
         supabase.from("profiles").select("*").order("display_name"),
+        supabase.from("user_history_labels").select("*").not("deleted_at", "is", null).order("display_name"),
         supabase.from("workplaces").select("*"),
         supabase
           .from("daily_status")
@@ -134,10 +135,16 @@ export default function ExportModal({ onClose }: ExportModalProps) {
       ]);
 
       if (profilesResult.error) throw profilesResult.error;
+      if (historyResult.error) throw historyResult.error;
       if (workplacesResult.error) throw workplacesResult.error;
       if (statusesResult.error) throw statusesResult.error;
 
       const profiles = (profilesResult.data as Profile[]) || [];
+      const existingIds = new Set(profiles.map((profile) => profile.id));
+      profiles.push(...(historyResult.data || []).filter((label) => !existingIds.has(label.user_id)).map((label) => ({
+        id: label.user_id, display_name: `${label.display_name}（已刪除）`, email: null,
+        role: "user" as const, sort_order: Number.MAX_SAFE_INTEGER, created_at: label.deleted_at || "",
+      })));
       const workplaceList = (workplacesResult.data as Workplace[]) || [];
       const statuses = (statusesResult.data as DailyStatus[]) || [];
 

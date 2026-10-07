@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import BatchStatusModal from "@/components/BatchStatusModal";
 import DayCell from "@/components/DayCell";
+import DeleteUserModal from "@/components/DeleteUserModal";
 import ExportModal from "@/components/ExportModal";
 import OTExportModal from "@/components/OTExportModal";
 import Header from "@/components/Header";
@@ -36,16 +37,21 @@ import type {
   DailyStatus,
   OtPeriod,
   Profile,
+  UserHistoryLabel,
   Workplace,
 } from "@/types/database";
 
+// Display order confirmed with Lucas on 2026-08-24. Any workplace name not
+// listed here (e.g. a newly added site) falls back to alphabetical order,
+// sorted after every name that does appear in this list.
 const WORKPLACE_ORDER = [
   "K3",
   "K5",
   "Office",
-  "Home",
-  "Customer Site",
-  "dayoff",
+  "ITEK",
+  "Tester",
+  "Other Customer Site",
+  "Dayoff",
 ];
 
 function pad2(value: number) {
@@ -200,6 +206,7 @@ export default function Calendar() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [historyLabels, setHistoryLabels] = useState<UserHistoryLabel[]>([]);
   const [workplaces, setWorkplaces] = useState<Workplace[]>([]);
   const [statuses, setStatuses] = useState<CalendarStatus[]>([]);
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
@@ -219,9 +226,21 @@ export default function Calendar() {
   const [batchError, setBatchError] = useState<string | null>(null);
   const [otPeriod, setOtPeriod] = useState<OtPeriod | null>(null);
   const [otPeriodStatuses, setOtPeriodStatuses] = useState<DailyStatus[]>([]);
+  const [otPeriodError, setOtPeriodError] = useState<string | null>(null);
+  const [otRangeError, setOtRangeError] = useState<string | null>(null);
   const [isOtSettingsOpen, setIsOtSettingsOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isOtExportOpen, setIsOtExportOpen] = useState(false);
+  const [isDeleteUserOpen, setIsDeleteUserOpen] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const reportingProfiles = useMemo(() => {
+    const existing = new Set(profiles.map((profile) => profile.id));
+    return [...profiles, ...historyLabels.filter((label) => label.deleted_at && !existing.has(label.user_id)).map((label) => ({
+      id: label.user_id, display_name: `${label.display_name}（已刪除）`, email: null,
+      role: "user" as const, sort_order: Number.MAX_SAFE_INTEGER, created_at: label.deleted_at || "",
+    }))];
+  }, [profiles, historyLabels]);
 
   const monthDays = useMemo(
     () => buildMonthGrid(currentMonth),
@@ -278,13 +297,13 @@ export default function Calendar() {
   );
 
   const otSummary = useMemo(
-    () => computeOtSummary(otPeriodStatuses, otSummaryRange, profiles),
-    [otPeriodStatuses, otSummaryRange, profiles],
+    () => computeOtSummary(otPeriodStatuses, otSummaryRange, reportingProfiles),
+    [otPeriodStatuses, otSummaryRange, reportingProfiles],
   );
 
   const prevOtSummary = useMemo(
-    () => computeOtSummary(otPeriodStatuses, prevPeriodRange, profiles),
-    [otPeriodStatuses, prevPeriodRange, profiles],
+    () => computeOtSummary(otPeriodStatuses, prevPeriodRange, reportingProfiles),
+    [otPeriodStatuses, prevPeriodRange, reportingProfiles],
   );
 
   const leaveSummary = useMemo(() => {
@@ -308,7 +327,7 @@ export default function Calendar() {
 
     return Array.from(totals.entries())
       .map(([userId, hours]) => {
-        const profile = profiles.find((entry) => entry.id === userId);
+        const profile = reportingProfiles.find((entry) => entry.id === userId);
         const label =
           profile?.display_name || profile?.email || "Unknown member";
         return { userId, label, hours };
@@ -319,7 +338,7 @@ export default function Calendar() {
         }
         return left.label.localeCompare(right.label);
       });
-  }, [statuses, profiles, firstMonthDate, lastMonthDate]);
+  }, [statuses, reportingProfiles, firstMonthDate, lastMonthDate]);
 
   const userProfile = useMemo(
     () => profiles.find((profile) => profile.id === user?.id) || null,
@@ -359,16 +378,17 @@ export default function Calendar() {
     setModalError(null);
   }
 
-  const loadMonthData = useCallback(async () => {
+  // Resolves to true only when every query (members, history labels, workplaces, calendar rows, OT period) succeeded.
+  const loadMonthData = useCallback(async (): Promise<boolean> => {
     if (!user || !firstMonthDate || !lastMonthDate) {
-      return;
+      return false;
     }
 
     const configError = getSupabaseConfigError();
     if (configError) {
       setError(configError);
       setLoading(false);
-      return;
+      return false;
     }
 
     setLoading(true);
@@ -377,6 +397,7 @@ export default function Calendar() {
     const supabase = getSupabaseClient();
     const [
       profilesResult,
+      historyLabelsResult,
       workplacesResult,
       statusesResult,
       otPeriodResult,
@@ -386,6 +407,7 @@ export default function Calendar() {
         .select("*")
         .order("sort_order", { ascending: true })
         .order("display_name", { ascending: true }),
+      supabase.from("user_history_labels").select("*").order("display_name"),
       supabase
         .from("workplaces")
         .select("*")
@@ -410,6 +432,7 @@ export default function Calendar() {
       profilesResult.error
         ? `profiles: ${profilesResult.error.message}. Run supabase/add_admin_role.sql in Supabase SQL Editor.`
         : null,
+      historyLabelsResult.error ? `user_history_labels: ${historyLabelsResult.error.message}` : null,
       workplacesResult.error
         ? `workplaces: ${workplacesResult.error.message}. Confirm RLS allows authenticated select on active workplaces.`
         : null,
@@ -419,15 +442,22 @@ export default function Calendar() {
     ].filter(Boolean);
 
     const nextProfiles = profilesResult.error ? [] : profilesResult.data || [];
+    const nextHistoryLabels = historyLabelsResult.error ? [] : historyLabelsResult.data || [];
     const nextWorkplaces = workplacesResult.error
       ? []
       : sortWorkplaces(workplacesResult.data || []);
     const profileMap = new Map(nextProfiles.map((profile) => [profile.id, profile]));
+    const historyMap = new Map(nextHistoryLabels.map((label) => [label.user_id, label]));
     const workplaceMap = new Map(
       nextWorkplaces.map((workplace) => [workplace.id, workplace]),
     );
 
-    setProfiles(nextProfiles);
+    // A failed member query must not blank the list: isAdmin derives from it, and losing it would unmount the
+    // Delete User modal before it can report that the refresh failed.
+    if (!profilesResult.error) {
+      setProfiles(nextProfiles);
+    }
+    setHistoryLabels(nextHistoryLabels);
     setWorkplaces(nextWorkplaces);
     setStatuses(
       ((statusesResult.error ? [] : statusesResult.data || []) as DailyStatus[]).map((status) => {
@@ -443,12 +473,20 @@ export default function Calendar() {
         return {
           ...status,
           profile: profileMap.get(status.user_id),
+          historyLabel: historyMap.get(status.user_id),
           workplace: workplaceMap.get(status.workplace_id),
           workplaces: resolved,
         };
       }),
     );
-    if (!otPeriodResult.error) {
+    if (otPeriodResult.error) {
+      console.error("Failed to load OT period:", otPeriodResult.error);
+      setOtPeriodError(
+        "Unable to load the OT period. Please retry or contact an administrator.",
+      );
+      setOtPeriod(null);
+    } else {
+      setOtPeriodError(null);
       setOtPeriod((otPeriodResult.data as OtPeriod | null) ?? null);
     }
     setError(
@@ -459,6 +497,7 @@ export default function Calendar() {
           : null,
     );
     setLoading(false);
+    return errorMessages.length === 0 && !otPeriodResult.error;
   }, [firstMonthDate, lastMonthDate, user]);
 
   useEffect(() => {
@@ -508,38 +547,61 @@ export default function Calendar() {
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (!periodError) {
-      setOtPeriod((data as OtPeriod | null) ?? null);
-    }
-  }, [user]);
-
-  useEffect(() => {
-    if (!user) {
+    if (periodError) {
+      console.error("Failed to reload OT period:", periodError);
+      setOtPeriodError(
+        "Unable to load the OT period. Please retry or contact an administrator.",
+      );
+      setOtPeriod(null);
       return;
     }
+    setOtPeriodError(null);
+    setOtPeriod((data as OtPeriod | null) ?? null);
+  }, [user]);
+
+  // Resolves to true when the OT summary range loaded (or was superseded by a newer request).
+  const loadOtRange = useCallback(
+    async (isCancelled: () => boolean = () => false): Promise<boolean> => {
+      if (!user) {
+        return false;
+      }
+      const { data, error: rangeError } = await getSupabaseClient()
+        .from("daily_status")
+        .select("*")
+        .gte("work_date", prevPeriodRange.start)
+        .lte("work_date", otSummaryRange.end)
+        .eq("overtime_enabled", true);
+      if (isCancelled()) {
+        return true;
+      }
+      if (rangeError) {
+        console.error("Failed to load OT summary range:", rangeError);
+        setOtRangeError(
+          "Unable to load the OT summary. Please retry or contact an administrator.",
+        );
+        setOtPeriodStatuses([]);
+        return false;
+      }
+      setOtRangeError(null);
+      setOtPeriodStatuses((data as DailyStatus[]) || []);
+      return true;
+    },
+    [user, prevPeriodRange.start, otSummaryRange.end],
+  );
+
+  useEffect(() => {
     let cancelled = false;
-    const supabase = getSupabaseClient();
-    supabase
-      .from("daily_status")
-      .select("*")
-      .gte("work_date", prevPeriodRange.start)
-      .lte("work_date", otSummaryRange.end)
-      .eq("overtime_enabled", true)
-      .then(({ data, error: rangeError }) => {
-        if (cancelled || rangeError) {
-          return;
-        }
-        setOtPeriodStatuses((data as DailyStatus[]) || []);
-      });
+    void loadOtRange(() => cancelled);
     return () => {
       cancelled = true;
     };
-  }, [
-    user,
-    prevPeriodRange.start,
-    otSummaryRange.end,
-    statuses,
-  ]);
+  }, [loadOtRange, statuses]);
+
+  // After Delete User: refresh members, calendar and OT data and report whether all of them succeeded.
+  const refreshAfterDelete = useCallback(async (): Promise<boolean> => {
+    const [monthOk, otOk] = await Promise.all([loadMonthData(), loadOtRange()]);
+    return monthOk && otOk;
+  }, [loadMonthData, loadOtRange]);
 
   useEffect(() => {
     setSelectedDates(new Set());
@@ -826,7 +888,7 @@ export default function Calendar() {
 
   return (
     <div className="min-h-screen bg-[#f7f8fb]">
-      <Header userLabel={userLabel} onLogout={handleLogout} isAdmin={isAdmin} />
+      <Header userLabel={userLabel} onLogout={handleLogout} isAdmin={isAdmin} onDeleteUser={() => { setSuccessMessage(null); setIsDeleteUserOpen(true); }} />
 
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         <section className="mb-5 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -926,6 +988,9 @@ export default function Calendar() {
             {error}
           </div>
         ) : null}
+        {successMessage ? (
+          <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{successMessage}</div>
+        ) : null}
 
         <section className="mb-4 rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-3 shadow-soft">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -942,6 +1007,11 @@ export default function Calendar() {
               </button>
             ) : null}
           </div>
+          {otPeriodError || otRangeError ? (
+            <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {[otPeriodError, otRangeError].filter(Boolean).join(" ")}
+            </div>
+          ) : null}
           <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <p className="text-xs font-semibold text-amber-700">
@@ -1093,7 +1163,7 @@ export default function Calendar() {
         <OTExportModal
           otSummaryRange={exportSummaryRange}
           prevPeriodRange={exportPrevPeriodRange}
-          profiles={profiles}
+          profiles={reportingProfiles}
           isAdmin={isAdmin}
           onClose={() => setIsOtExportOpen(false)}
         />
@@ -1114,6 +1184,14 @@ export default function Calendar() {
           }}
           onApply={handleBatchApply}
         />
+      ) : null}
+
+      {isDeleteUserOpen && isAdmin ? (
+        <DeleteUserModal onClose={() => setIsDeleteUserOpen(false)} onStart={() => setSuccessMessage(null)} onDeleted={async () => {
+          const refreshed = await refreshAfterDelete();
+          if (refreshed) setSuccessMessage("使用者已刪除成功。");
+          return refreshed;
+        }} />
       ) : null}
     </div>
   );

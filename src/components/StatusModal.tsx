@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { WINDOW_LOCK_MESSAGE, isWithinSelfEditWindow } from "@/lib/calendar";
+import { memberDisplayName, resolveStatusMemberName } from "@/lib/memberLabel";
 import type { CalendarStatus, Profile, Workplace } from "@/types/database";
 
 type StatusModalProps = {
@@ -32,11 +33,12 @@ const LEAVE_HOUR_OPTIONS = Array.from({ length: 16 }, (_, index) => (index + 1) 
 const DEFAULT_LEAVE_HOURS = 8;
 
 function memberLabel(profile?: Profile) {
-  return profile?.display_name || profile?.email || "Unknown member";
+  return profile ? memberDisplayName(profile) : "Unknown member";
 }
 
 function statusMemberLabel(status: CalendarStatus) {
-  return memberLabel(status.profile);
+  const name = resolveStatusMemberName(status);
+  return name === "Unknown" ? "Unknown member" : name;
 }
 
 function resolveStatusWorkplaces(
@@ -113,10 +115,11 @@ export default function StatusModal({
     () => statuses.find((status) => status.user_id === targetUserId) || null,
     [statuses, targetUserId],
   );
+  const targetProfileExists = profiles.some((profile) => profile.id === targetUserId);
   const isOwnRecord = !isAdmin && targetUserId === currentUserId;
   const outsideSelfEditWindow =
     isOwnRecord && !isWithinSelfEditWindow(selectedDate);
-  const canEdit = isAdmin || (isOwnRecord && !outsideSelfEditWindow);
+  const canEdit = targetProfileExists && (isAdmin || (isOwnRecord && !outsideSelfEditWindow));
   const [workplaceIds, setWorkplaceIds] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const [overtimeEnabled, setOvertimeEnabled] = useState(false);
@@ -145,9 +148,11 @@ export default function StatusModal({
     );
 
     setSelectedUserId(
-      requestedUserExists ? requestedUserId : profiles[0]?.id || currentUserId,
+      requestedUserExists || statuses.some((status) => status.user_id === requestedUserId)
+        ? requestedUserId
+        : profiles[0]?.id || currentUserId,
     );
-  }, [currentUserId, isAdmin, profiles, selectedStatusUserId]);
+  }, [currentUserId, isAdmin, profiles, selectedStatusUserId, statuses]);
 
   useEffect(() => {
     const availableIds = new Set(workplaces.map((entry) => entry.id));
@@ -291,6 +296,11 @@ export default function StatusModal({
                   onChange={(event) => setSelectedUserId(event.target.value)}
                   required
                 >
+                  {!targetProfileExists && targetStatus ? (
+                    <option key={targetUserId} value={targetUserId}>
+                      {statusMemberLabel(targetStatus)}
+                    </option>
+                  ) : null}
                   {sortedProfiles.map((profile) => (
                     <option key={profile.id} value={profile.id}>
                       {memberLabel(profile)}
